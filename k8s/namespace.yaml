@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devsecops-demo
+  labels:
+    # -------------------------------------------------------------------------
+    # Resource Tracking & Standardization Labels
+    # Follows Kubernetes recommended labels for auditing, inventory, and governance.
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/name: devsecops-demo
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+
+    # -------------------------------------------------------------------------
+    # DevSecOps Principle: Pod Security Admission (PSA) Enforcement
+    # Pod Security Admission provides native policy enforcement at namespace level.
+    # The 'restricted' profile is the most secure tier, heavily hardening pods
+    # against privilege escalation, unauthorized root access, host namespace leaks,
+    # and dangerous Linux capabilities.
+    # -------------------------------------------------------------------------
+    # Enforce: Rejects any pod creation that violates the restricted profile
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+
+    # Audit: Records audit events for policy violations to enable SIEM visibility
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+
+    # Warn: Provides immediate interactive feedback to developers/operators during apply
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

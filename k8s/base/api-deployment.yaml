@@ -1,0 +1,173 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: devsecops-demo
+  labels:
+    # -------------------------------------------------------------------------
+    # Resource Identification Labels
+    # Consistent standard labels across all Kubernetes resources
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/name: api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # ---------------------------------------------------------------------------
+  # High Availability Baseline
+  # Running at least 2 replicas ensures resilience against single-pod failures
+  # and enables seamless zero-downtime rolling upgrades.
+  # ---------------------------------------------------------------------------
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # DevSecOps Principle: Zero-Downtime Rollouts
+      # maxUnavailable 0 guarantees service capacity is never degraded during updates.
+      # maxSurge 1 spins up a new pod and waits for readiness probe before terminating old ones.
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: devsecops-demo
+        app.kubernetes.io/managed-by: kubectl
+    spec:
+      # -----------------------------------------------------------------------
+      # DevSecOps Principle: Graceful Termination
+      # Gives Node.js / Express 30 seconds to finish in-flight HTTP requests,
+      # close database/Redis connections, and clean up before SIGKILL is sent.
+      # -----------------------------------------------------------------------
+      terminationGracePeriodSeconds: 30
+
+      # -----------------------------------------------------------------------
+      # DevSecOps Principle: Pod-Level Security Standards (PSS - Restricted)
+      # 1. runAsNonRoot: Pod must never run as UID 0 (root).
+      # 2. runAsUser / runAsGroup: Explicit non-root UID/GID (1001) avoids default root.
+      # 3. fsGroup: Ensures volume mounts are readable/writable by group 1001.
+      # 4. seccompProfile: RuntimeDefault blocks dangerous kernel syscalls
+      #    (mandatory for Kubernetes Pod Security Standards Restricted profile).
+      # -----------------------------------------------------------------------
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # -----------------------------------------------------------------------
+      # DevSecOps Principle: High Availability & Blast Radius Containment
+      # Pod Anti-Affinity (Soft / Preferred) schedules replica pods across distinct
+      # worker nodes to protect the application against single-node outages.
+      # -----------------------------------------------------------------------
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - api
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: devsecops-demo-api
+          image: devsecops-demo-api:latest
+          # Use IfNotPresent for local dev images; in production use image digests (sha256)
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Environment Decoupling & Secret Isolation
+          # Injects configuration and secrets as environment variables.
+          # -------------------------------------------------------------------
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Container-Level Least Privilege & Defense-in-Depth
+          # 1. allowPrivilegeEscalation: false prevents setuid/setgid binaries from
+          #    gaining elevated root privileges.
+          # 2. readOnlyRootFilesystem: true prevents malicious tampering, code injection,
+          #    or writing backdoors to the container file system at runtime.
+          # 3. capabilities.drop: [ALL] drops all default Linux capabilities (e.g. NET_RAW,
+          #    SYS_ADMIN, CHOWN) drastically reducing kernel vulnerability exposure.
+          # -------------------------------------------------------------------
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities:
+              drop:
+                - ALL
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Resource Quotas & Denial-of-Service (DoS) Defense
+          # Prevents 'noisy neighbor' resource starvation.
+          # Requests guarantee minimum scheduling resources.
+          # Limits prevent runaway memory leaks from triggering node out-of-memory (OOM).
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Self-Healing & Health Observability
+          # Liveness Probe: Detects deadlocks and restarts the container if unresponsive.
+          # Readiness Probe: Prevents traffic routing to starting or overloaded pods.
+          # -------------------------------------------------------------------
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Controlled Writable Temp Space
+          # Because the root filesystem is read-only, Node.js and its libraries
+          # require a writable /tmp directory for scratch data and temporary sockets.
+          # -------------------------------------------------------------------
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+
+      volumes:
+        # emptyDir volume provides an ephemeral, memory- or disk-backed temporary storage.
+        # Adding sizeLimit prevents malicious or buggy processes from exhausting node disk space.
+        - name: tmp-volume
+          emptyDir:
+            sizeLimit: 64Mi

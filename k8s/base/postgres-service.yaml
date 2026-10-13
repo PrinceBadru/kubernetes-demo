@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: devsecops-demo
+  labels:
+    # -------------------------------------------------------------------------
+    # Resource Identification Labels
+    # Standard labels for tracking component ownership and deployment metadata.
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # ---------------------------------------------------------------------------
+  # DevSecOps Principle: Headless Service & Predictable Network Identity
+  # Setting clusterIP to 'None' creates a Headless Service. Instead of load-balancing
+  # through a single virtual cluster IP, Kubernetes DNS returns direct A records
+  # for the StatefulSet pod(s) (e.g. postgres-0.postgres.devsecops-demo.svc.cluster.local).
+  # This provides stateful client connections with deterministic routing and eliminates
+  # proxy hops for database traffic.
+  # ---------------------------------------------------------------------------
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

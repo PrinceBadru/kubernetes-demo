@@ -1,0 +1,173 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: devsecops-demo
+  labels:
+    # -------------------------------------------------------------------------
+    # Resource Identification Labels
+    # Consistent standard labels across all Kubernetes resources
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # ---------------------------------------------------------------------------
+  # DevSecOps Principle: State Isolation & Stable Identity
+  # StatefulSets provide stable, predictable network identifiers (postgres-0)
+  # and dedicated persistent volume attachment lifecycle.
+  # ---------------------------------------------------------------------------
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: devsecops-demo
+        app.kubernetes.io/managed-by: kubectl
+    spec:
+      # -----------------------------------------------------------------------
+      # DevSecOps Principle: Non-Root Execution & Pod Security Standards (Restricted)
+      # 1. runAsNonRoot: Mandatory enforcement ensuring postgres never runs as root.
+      # 2. runAsUser / runAsGroup: UID 999 is the default 'postgres' system user in alpine.
+      # 3. fsGroup: Ensures Kubernetes automatically sets group ownership on PVC mounts.
+      # 4. seccompProfile: RuntimeDefault restricts system calls to an approved safe baseline.
+      # -----------------------------------------------------------------------
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+              protocol: TCP
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Configuration Decoupling & Secret Hygiene
+          # Database username and database name are injected from ConfigMap.
+          # Sensitive database credentials are retrieved securely from Secret.
+          # PGDATA uses a subpath to prevent initdb failure from lost+found root dirs.
+          # -------------------------------------------------------------------
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: PG_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: PG_DATABASE
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: PG_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Container-Level Hardening
+          # 1. allowPrivilegeEscalation: false prevents sub-processes from obtaining new privileges.
+          # 2. capabilities.drop: [ALL] removes all root capabilities inside the container.
+          # -------------------------------------------------------------------
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            capabilities:
+              drop:
+                - ALL
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Resource Bounds
+          # Prevents database memory bloat and protects cluster stability.
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Health & Readiness Verification
+          # Probes run pg_isready as the application user against the application database.
+          # Ensures traffic is only routed when the database engine is ready for queries.
+          # -------------------------------------------------------------------
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - app
+                - -d
+                - auditor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - app
+                - -d
+                - auditor
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: socket-dir
+              mountPath: /var/run/postgresql
+            - name: tmp-dir
+              mountPath: /tmp
+
+      volumes:
+        # Ephemeral mounts for Unix sockets and temp files with non-root ownership
+        - name: socket-dir
+          emptyDir: {}
+        - name: tmp-dir
+          emptyDir: {}
+
+  # ---------------------------------------------------------------------------
+  # DevSecOps Principle: Data Durability & Persistent Storage Management
+  # volumeClaimTemplates dynamically provisions persistent volumes for state retention
+  # across pod restarts, evictions, or rolling node upgrades.
+  # ---------------------------------------------------------------------------
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          app.kubernetes.io/name: postgres
+          app.kubernetes.io/component: database
+          app.kubernetes.io/part-of: devsecops-demo
+          app.kubernetes.io/managed-by: kubectl
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

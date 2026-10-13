@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# -----------------------------------------------------------------------------
+# DevSecOps Principle: Declarative GitOps Baseline Management
+# Kustomize base defines the immutable baseline manifests for the devsecops-demo
+# application. Overlays (e.g. staging, production) can patch environments without
+# duplicating core security postures.
+# -----------------------------------------------------------------------------
+namespace: devsecops-demo
+
+resources:
+  - configmap.yaml
+  - secrets.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - api-hpa.yaml
+  - postgres-statefulset.yaml
+  - postgres-service.yaml
+  - redis-deployment.yaml
+  - redis-service.yaml
+  - ingress.yaml

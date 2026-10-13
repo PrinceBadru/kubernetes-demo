@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: devsecops-demo
+  labels:
+    # -------------------------------------------------------------------------
+    # Resource Identification Labels
+    # Standard labels for tracking component ownership and deployment metadata.
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/name: api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+data:
+  # ---------------------------------------------------------------------------
+  # DevSecOps Principle: Twelve-Factor Configuration & Separation of Concerns
+  # Non-sensitive configuration is extracted from the application codebase and
+  # maintained declaratively. This avoids hardcoding operational parameters inside
+  # container images, allowing immutable image builds across multiple environments.
+  # Sensitive data (passwords, tokens) is strictly isolated into Secrets.
+  # ---------------------------------------------------------------------------
+
+  # Application Runtime Environment
+  NODE_ENV: "production"
+  PORT: "3000"
+
+  # PostgreSQL Database Configuration (Internal Cluster DNS)
+  # Uses the Kubernetes headless/cluster service DNS name for service discovery.
+  PG_HOST: "postgres"
+  PG_PORT: "5432"
+  PG_USER: "app"
+  PG_DATABASE: "auditor"
+
+  # Redis Cache Configuration (Internal Cluster DNS)
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
