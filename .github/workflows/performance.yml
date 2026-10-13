@@ -1,0 +1,114 @@
+name: Performance Testing Pipeline
+
+# ==============================================================================
+# DevSecOps Pipeline: Performance Testing & Service Level Objective (SLO) Validation
+# Frameworks: Site Reliability Engineering (SRE), Shift-Right Continuous Verification
+# ==============================================================================
+# Overview:
+# This workflow executes automated performance and load testing against the deployed API:
+# 1. Pipeline Triggering: Triggers upon completion of the "Deployment Pipeline" or via
+#    manual workflow dispatch for on-demand performance benchmarking.
+# 2. Smoke Testing: Rapid, low-concurrency test verifying endpoint responsiveness,
+#    HTTP status codes, and baseline latency before commencing high-concurrency loads.
+# 3. Load Testing: Multi-stage load generation evaluating system throughput, 95th/99th
+#    percentile response times, error rates under stress, and Kubernetes Horizontal Pod
+#    Autoscaler (HPA) reaction.
+# 4. Artifact Archival: Exports structured test summaries and uploads metrics artifacts
+#    for long-term trending, capacity planning, and regression analysis.
+# ==============================================================================
+
+on:
+  workflow_run:
+    workflows: ["Deployment Pipeline"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Base URL for API performance testing'
+        required: false
+        default: 'http://localhost:3000'
+
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Principle of Least Privilege (PoLP)
+# Restricts runner token permissions strictly to repository read access.
+# ------------------------------------------------------------------------------
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  k6-tests:
+    name: Execute k6 Load & Smoke Tests
+    # --------------------------------------------------------------------------
+    # DevSecOps Principle: Conditional Execution Gate
+    # Ensures performance tests only run if the preceding deployment succeeded
+    # or when an operator explicitly dispatches the workflow.
+    # --------------------------------------------------------------------------
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      BASE_URL: ${{ github.event.inputs.target_url || 'http://localhost:3000' }}
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Reproducible Test Script Retrieval
+      # ------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Standardized Performance Toolchain Setup
+      # Installs official Grafana k6 modern load testing CLI tool.
+      # ------------------------------------------------------------------------
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Pre-Execution Environment Preparation
+      # Creates target reports directory for structured summary exports.
+      # ------------------------------------------------------------------------
+      - name: Prepare reports directory
+        run: mkdir -p reports
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Progressive Performance Verification - Smoke Testing
+      # Validates minimal functionality under minimal load (1-2 virtual users).
+      # Fails fast if endpoints return 5xx errors or exceed basic latency thresholds
+      # before subjecting the infrastructure to heavy stress.
+      # ------------------------------------------------------------------------
+      - name: Run smoke test
+        run: k6 run scripts/k6/smoke.js
+        env:
+          K6_SUMMARY_EXPORT: reports/smoke-summary.json
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Non-Functional Requirement (NFR) & Resilience Testing
+      # Ramps up virtual users to evaluate throughput, p95/p99 response times,
+      # database connection pool contention, and HPA auto-scaling capabilities.
+      # Strict thresholds enforce SRE Service Level Objectives (SLOs).
+      # ------------------------------------------------------------------------
+      - name: Run load test
+        run: k6 run scripts/k6/load.js
+        env:
+          K6_SUMMARY_EXPORT: reports/load-summary.json
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Telemetry Archival & Continuous Auditability
+      # Uploads JSON summary reports as workflow artifacts. Configured with 'always()'
+      # to ensure results are captured even if performance thresholds fail.
+      # ------------------------------------------------------------------------
+      - name: Upload results as artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-performance-results
+          path: |
+            reports/
+            *.json
+          retention-days: 30

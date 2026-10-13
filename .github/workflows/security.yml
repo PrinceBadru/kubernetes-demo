@@ -1,0 +1,198 @@
+name: Security Scanning Pipeline
+
+# ==============================================================================
+# DevSecOps Pipeline: Security Scanning & Shift-Left Assurance
+# Frameworks: OWASP Top 10, CIS Kubernetes Benchmarks, NIST SP 800-190, NIST SP 800-53
+# ==============================================================================
+# Overview:
+# This multi-stage security pipeline executes automated Shift-Left security gates:
+# 1. Secret Scanning (Gitleaks): Detects leaked credentials, API tokens, and private keys.
+# 2. Static Application Security Testing (Semgrep SAST): Identifies OWASP vulnerabilities
+#    and insecure coding patterns in application source code.
+# 3. Software Composition Analysis (npm audit & Trivy fs): Uncovers vulnerable third-party
+#    dependencies and CVEs in lockfiles and filesystem.
+# 4. Infrastructure as Code (IaC) Scanning (kube-linter & Checkov): Audits Kubernetes
+#    manifests against CIS benchmarks and Pod Security Standards before deployment.
+# ==============================================================================
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # --------------------------------------------------------------------------
+    # DevSecOps Principle: Continuous Threat Intelligence & Regression Detection
+    # Runs weekly on Sunday at 03:00 UTC to catch newly published CVEs against
+    # existing codebase without requiring code changes to trigger builds.
+    # --------------------------------------------------------------------------
+    - cron: '0 3 * * 0'
+
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Principle of Least Privilege (PoLP)
+# Restricts permissions strictly to repository read access and security-events write
+# access (required for uploading SARIF reports to GitHub Advanced Security tab).
+# ------------------------------------------------------------------------------
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # 1. Secret Scanning (Gitleaks)
+  # ============================================================================
+  secret-scan:
+    name: Secret Leak Detection (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Comprehensive Git History Auditing
+      # 'fetch-depth: 0' fetches full commit history rather than a shallow clone.
+      # This is critical for secret scanning to detect credentials that may have
+      # been committed and subsequently removed in later commits.
+      # ------------------------------------------------------------------------
+      - name: Checkout full git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Shift-Left Secret Leak Prevention
+      # Gitleaks scans git commits, branches, and diffs using regex patterns and
+      # Shannon entropy algorithms to catch hardcoded secrets (AWS keys, GitHub tokens,
+      # database passwords, private certificates) before they reach production.
+      # ------------------------------------------------------------------------
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # 2. Static Application Security Testing (Semgrep SAST)
+  # ============================================================================
+  sast:
+    name: SAST Code Analysis (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Secure Source Inspection
+      # Retrieves application code for static semantic analysis.
+      # ------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Semantic Rule-Based Application Hardening
+      # Semgrep analyses Node.js and Express source code against rulesets:
+      # - 'p/nodejs': Identifies Node.js-specific vulnerabilities (prototype pollution, child_process injection).
+      # - 'p/javascript': Enforces JavaScript secure coding standards and prevents unsafe evals.
+      # - 'p/owasp-top-ten': Detects critical vulnerabilities like SQL injection, SSRF, XSS, and broken access controls.
+      # ------------------------------------------------------------------------
+      - name: Run Semgrep SAST Scanner
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: 'p/nodejs p/javascript p/owasp-top-ten'
+
+  # ============================================================================
+  # 3. Dependency & Filesystem Vulnerability Scanning (SCA)
+  # ============================================================================
+  dependency-scan:
+    name: Dependency & Filesystem SCA (npm audit & Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Source & Manifest Retrieval
+      # ------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Standardized Build Environment
+      # Sets up pinned Node.js 18 environment with npm cache.
+      # ------------------------------------------------------------------------
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Deterministic Package Installation
+      # Validates package-lock.json integrity before vulnerability auditing.
+      # ------------------------------------------------------------------------
+      - name: Install dependencies (clean install)
+        run: npm ci
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Software Composition Analysis (SCA) - NPM Audit Gate
+      # Inspects installed Node.js package dependency tree against npm advisory database.
+      # Fails immediately if HIGH or CRITICAL severity vulnerabilities are discovered.
+      # ------------------------------------------------------------------------
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Deep Filesystem & Transitive Dependency Scanning
+      # Trivy scans the root filesystem, configuration files, and lockfiles against
+      # global vulnerability feeds (NVD, GitHub Advisories) to identify unpatched CVEs.
+      # Fails the build (exit-code 1) on HIGH or CRITICAL vulnerabilities.
+      # ------------------------------------------------------------------------
+      - name: Run Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          format: 'table'
+
+  # ============================================================================
+  # 4. Infrastructure as Code (IaC) Scanning (kube-linter & Checkov)
+  # ============================================================================
+  manifest-scan:
+    name: Kubernetes Manifest Security (kube-linter & Checkov)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Infrastructure Code Retrieval
+      # ------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Policy-as-Code & K8s Best Practices (kube-linter)
+      # Scans Kubernetes manifests in k8s/ to verify production readiness:
+      # - Enforces explicit CPU and memory requests and limits
+      # - Checks for readOnlyRootFilesystem and non-root user configurations
+      # - Validates readiness and liveness probe definitions
+      # - Verifies dropping of dangerous Linux capabilities
+      # ------------------------------------------------------------------------
+      - name: Run kube-linter on Kubernetes manifests
+        uses: stackrox/kube-linter-action@v1
+        with:
+          directory: 'k8s'
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Compliance & CIS Benchmark Auditing (Checkov)
+      # Checkov audits Kubernetes YAML manifests against CIS Kubernetes Benchmarks,
+      # Pod Security Standards (PSS Restricted profile), and NSA/CISA hardening guidance.
+      # Validates network policies, resource quotas, and RBAC least privilege.
+      # ------------------------------------------------------------------------
+      - name: Run Checkov IaC Security Scanner
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: 'k8s/'
+          framework: 'kubernetes'

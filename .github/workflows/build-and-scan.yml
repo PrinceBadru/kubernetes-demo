@@ -1,0 +1,164 @@
+name: Container Build & Scan
+
+# ==============================================================================
+# DevSecOps Pipeline: Container Build, Vulnerability Scanning & GHCR Publishing
+# Frameworks: NIST SP 800-190, CIS Docker Benchmark, SLSA Framework Level 2
+# ==============================================================================
+# Overview:
+# This workflow implements a secure container lifecycle:
+# 1. Ephemeral Build: Builds the container image using Buildx with secure layer caching.
+# 2. Shift-Left Container Gate: Evaluates the un-pushed container against Trivy for
+#    OS-level and application-level vulnerabilities (CVEs).
+# 3. Policy Enforcement: Fails the build immediately (exit code 1) on HIGH/CRITICAL CVEs.
+# 4. Secure Registry Publishing: Pushes validated images to GitHub Container Registry (GHCR)
+#    with immutable commit SHA and latest tags only after passing security gates.
+# 5. Supply Chain Transparency: Generates and archives a Software Bill of Materials (SBOM)
+#    in SPDX JSON standard for auditability (Executive Order 14028 compliance).
+# ==============================================================================
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'index.js'
+      - 'package*.json'
+      - 'Dockerfile'
+
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Principle of Least Privilege (PoLP)
+# Restricts permissions strictly to repository read access and container package publishing.
+# No administrative or secret modification permissions are granted.
+# ------------------------------------------------------------------------------
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-scan-push:
+    name: Build, Scan & Push Container
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Verified Source Retrieval
+      # ------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Registry Naming Normalization & Tag Standardization
+      # Docker OCI specification mandates strictly lowercase repository paths.
+      # Normalizes GitHub repository name to lowercase to prevent registry rejections.
+      # ------------------------------------------------------------------------
+      - name: Prepare container repository name
+        id: prep
+        run: |
+          LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_URI="ghcr.io/${LOWER_REPO}"
+          echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
+          echo "Normalized target image URI: ${IMAGE_URI}"
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Isolated Container Build Environment
+      # Docker Buildx provides BuildKit capabilities, multi-stage caching, and isolated
+      # build daemon execution to prevent host daemon contamination.
+      # ------------------------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Ephemeral & Scoped Registry Authentication
+      # Authenticates to GitHub Container Registry (GHCR) using the auto-generated,
+      # short-lived ${{ github.token }} (GITHUB_TOKEN) rather than long-lived static tokens.
+      # ------------------------------------------------------------------------
+      - name: Login to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Local Build Verification Prior to Publication
+      # Builds the image and loads it into the local runner's Docker daemon ('load: true').
+      # The image is deliberately NOT pushed yet, enforcing a strict Shift-Left gate:
+      # artifacts must pass vulnerability scanning before ever being shared remotely.
+      # ------------------------------------------------------------------------
+      - name: Build container image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: |
+            ${{ env.IMAGE_URI }}:${{ github.sha }}
+            ${{ env.IMAGE_URI }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Container Image Vulnerability Gatekeeping
+      # Scans the locally built image for known vulnerabilities in Alpine OS packages
+      # and Node.js production dependencies.
+      # - 'exit-code: 1': Hard failure gate; blocks deployment if HIGH or CRITICAL
+      #   vulnerabilities are detected.
+      # - 'severity: HIGH,CRITICAL': Focuses on actionable, high-impact risks.
+      # ------------------------------------------------------------------------
+      - name: Scan container image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
+          scan-type: 'image'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          format: 'table'
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Immutable Tagging & Trusted Publication
+      # This step only executes if the preceding Trivy vulnerability scan passes.
+      # Pushes both the immutable commit SHA tag (for cryptographic traceability)
+      # and the 'latest' floating tag to GHCR.
+      # ------------------------------------------------------------------------
+      - name: Push verified image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_URI }}:${{ github.sha }}
+            ${{ env.IMAGE_URI }}:latest
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Software Bill of Materials (SBOM) Generation
+      # Generates an immutable inventory of all components, libraries, and runtime dependencies
+      # embedded inside the container image using the SPDX JSON open standard.
+      # Essential for NIST SP 800-161 Supply Chain Risk Management and compliance auditing.
+      # ------------------------------------------------------------------------
+      - name: Generate Software Bill of Materials (SBOM)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
+          scan-type: 'image'
+          format: 'spdx-json'
+          output: 'sbom.spdx.json'
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Security Artifact Archival & Traceability
+      # Persists the generated SBOM as a workflow build artifact for long-term compliance,
+      # audit inspections, and external software supply chain verification.
+      # ------------------------------------------------------------------------
+      - name: Archive SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-spdx-${{ github.sha }}
+          path: sbom.spdx.json
+          retention-days: 30

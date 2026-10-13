@@ -1,0 +1,91 @@
+name: Code Quality Pipeline
+
+# ==============================================================================
+# DevSecOps Pipeline: Code Quality & Static Code Formatting
+# Frameworks: OWASP Secure Software Development Lifecycle (SSDLC) & Shift-Left
+# ==============================================================================
+# Overview:
+# This workflow represents the primary shift-left gate in the DevSecOps pipeline.
+# By validating code quality, syntax standards, and uniform formatting on every
+# push and pull request before any build or artifact publishing, teams detect defects
+# early, maintain maintainability, and ensure that security reviews are not obscured
+# by formatting inconsistencies or lint warnings.
+# ==============================================================================
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Principle of Least Privilege (PoLP)
+# Default token permissions are restricted to the bare minimum required for this
+# pipeline: read-only access to repository contents. Write access to code, issues,
+# packages, or deployment environments is explicitly denied.
+# ------------------------------------------------------------------------------
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-format:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Secure Source Code Checkout
+      # Fetches the repository source tree using the official GitHub action.
+      # Pinning to a major version (@v4) ensures stability and timely security patches.
+      # ------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Reproducible Toolchain & Runtime Pinning
+      # Pinning Node.js runtime version to Node 18 aligns CI execution exactly
+      # with the production container base image (node:18-alpine), mitigating
+      # "works on my machine" discrepancies and runtime engine discrepancies.
+      # Dependency caching reduces external network roundtrips and speeds up builds.
+      # ------------------------------------------------------------------------
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Deterministic & Immutable Dependency Installation
+      # 'npm ci' installs dependencies directly from package-lock.json without
+      # modifying it. Unlike 'npm install', it ensures builds are completely
+      # reproducible, fails immediately if the lockfile is out of sync, and prevents
+      # accidental installation of unpinned or malicious upstream transient versions.
+      # ------------------------------------------------------------------------
+      - name: Install dependencies (clean install)
+        run: npm ci
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Zero-Tolerance Quality & Code Defect Gate
+      # ESLint performs static code analysis to catch common anti-patterns,
+      # unhandled promise rejections, variable shadowing, and syntax bugs.
+      # Passing '--max-warnings 0' enforces a strict zero-warning policy, preventing
+      # developers from accumulating technical debt or ignoring potential security smells.
+      # ------------------------------------------------------------------------
+      - name: Run ESLint
+        run: npx eslint . --max-warnings 0
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Automated Consistency & Reviewability
+      # Prettier verifies uniform code formatting across all files. Consistent formatting
+      # minimizes noise in git diffs, making security-focused peer code reviews
+      # significantly faster and less prone to overlooking subtle malicious logic changes.
+      # ------------------------------------------------------------------------
+      - name: Run Prettier check
+        run: npx prettier --check .

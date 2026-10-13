@@ -1,0 +1,127 @@
+name: Deployment Pipeline
+
+# ==============================================================================
+# DevSecOps Pipeline: Automated Deployment & Progressive In-Cluster Verification
+# Frameworks: GitOps Delivery, NIST SP 800-207 Zero Trust, Continuous Verification
+# ==============================================================================
+# Overview:
+# This workflow orchestrates continuous deployment to the Kubernetes cluster:
+# 1. Pipeline Chaining & Gatekeeping: Automatically triggers only after the upstream
+#    "Container Build & Scan" pipeline concludes with 100% success.
+# 2. Layered Manifest Promotion:
+#    - Step 1: Establishes Namespace with Pod Security Admission (restricted profile).
+#    - Step 2: Enforces Security Controls (Default-Deny Network Policies, RBAC, Quotas).
+#    - Step 3: Deploys Workload Base Manifests (ConfigMaps, Secrets, API, DB, Redis).
+# 3. Rollout Validation: Awaits zero-downtime rolling update completion with timeout bounds.
+# 4. In-Cluster Smoke Testing: Deploys an ephemeral curl probe within the cluster network
+#    to validate service reachability and API liveness.
+# ==============================================================================
+
+on:
+  workflow_run:
+    workflows: ["Container Build & Scan"]
+    types:
+      - completed
+  workflow_dispatch:
+
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Principle of Least Privilege (PoLP)
+# Restricts runner token permissions strictly to repository read access.
+# ------------------------------------------------------------------------------
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Kubernetes Cluster
+    # --------------------------------------------------------------------------
+    # DevSecOps Principle: Strict Promotion Gate
+    # Only executes if manually triggered or if the upstream build and vulnerability
+    # scan workflow succeeded without any security failures.
+    # --------------------------------------------------------------------------
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Immutable Git Source of Truth (GitOps)
+      # Fetches the declarative Kubernetes manifests from the version-controlled repository.
+      # ------------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Toolchain Pinning & Reproducibility
+      # Installs kubectl client binary to interact with the target Kubernetes API server.
+      # ------------------------------------------------------------------------
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.0'
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Secure Credential Management & Cluster Access
+      # Safely injects cluster kubeconfig from repository secrets if configured.
+      # Sets restricted POSIX file permissions (chmod 600) to protect cluster keys.
+      # ------------------------------------------------------------------------
+      - name: Configure Kubernetes credentials
+        if: env.KUBECONFIG_SECRET != ''
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.KUBECONFIG }}
+        run: |
+          mkdir -p "$HOME/.kube"
+          if echo "$KUBECONFIG_SECRET" | base64 -d > "$HOME/.kube/config" 2>/dev/null; then
+            echo "Decoded base64 kubeconfig successfully."
+          else
+            echo "$KUBECONFIG_SECRET" > "$HOME/.kube/config"
+          fi
+          chmod 600 "$HOME/.kube/config"
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Namespace Isolation & Pod Security Admission Baseline
+      # Applies the namespace configuration first. Enforces Pod Security Standards (PSS)
+      # with 'restricted' profile enforcement to block privileged containers at the API boundary.
+      # ------------------------------------------------------------------------
+      - name: Apply namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Shift-Left Security Controls (Zero-Trust Foundation)
+      # Security policies MUST be applied before workload pods are scheduled:
+      # - Default-Deny NetworkPolicies block all unauthorized traffic from day zero.
+      # - ResourceQuotas and LimitRanges prevent DoS resource exhaustion.
+      # - RBAC roles restrict service account capabilities to least privilege.
+      # ------------------------------------------------------------------------
+      - name: Apply security policies
+        run: kubectl apply -f k8s/security/
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Declarative Desired-State Application Delivery
+      # Deploys application base components: API Deployment, PostgreSQL StatefulSet,
+      # Redis Deployment, Services, ConfigMaps, and Ingress routing rules.
+      # ------------------------------------------------------------------------
+      - name: Apply base manifests
+        run: kubectl apply -f k8s/base/
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Automated Rollout Health Gating
+      # Awaits successful completion of the rolling update. Confirms that new pods
+      # have passed readiness probes and old pods have been cleanly terminated.
+      # Times out after 120 seconds if deployment stalls, alerting on rollout failures.
+      # ------------------------------------------------------------------------
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/api -n devsecops-demo --timeout=120s
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: In-Cluster End-to-End Synthetic Health Verification
+      # Launches an unprivileged, ephemeral curl container inside the target namespace
+      # to perform synthetic liveness checks against the internal cluster DNS service.
+      # Automatically garbage-collects the test pod (--rm) after execution.
+      # ------------------------------------------------------------------------
+      - name: Smoke test
+        run: kubectl run curl-test --image=curlimages/curl --rm -it --restart=Never -n devsecops-demo -- curl -f http://api/healthz
