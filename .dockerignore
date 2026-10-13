@@ -1,0 +1,79 @@
+# ==============================================================================
+# DevSecOps .dockerignore
+# Purpose: Prevent sensitive credentials from leaking into Docker images,
+# reduce Docker build context transfer time, and eliminate non-production artifacts.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Dependency & Debug Artifacts (Build Optimization & Integrity)
+# ------------------------------------------------------------------------------
+# Prevents transferring host-installed node_modules with potentially incompatible
+# host architectures or infected modules; dependencies are built freshly in Stage 1.
+node_modules
+# Excludes local npm error and debug logs containing host system paths and details.
+npm-debug.log*
+
+# ------------------------------------------------------------------------------
+# 2. Version Control & Repository Metadata (Security & Context Optimization)
+# ------------------------------------------------------------------------------
+# Prevents leaking git commit history, contributor emails, commit hashes, or secrets
+# committed in past revisions; significantly decreases Docker build context size.
+.git
+.gitignore
+
+# ------------------------------------------------------------------------------
+# 3. Environment Variables & Secret Manifests (Critical Security Control)
+# ------------------------------------------------------------------------------
+# Strictly blocks all local environment configurations containing database credentials,
+# secret keys, tokens, and passwords from becoming baked into immutable image layers.
+.env
+.env.*
+# Whitelist only the non-sensitive configuration template for reference.
+!.env.example
+
+# ------------------------------------------------------------------------------
+# 4. Container Build & Orchestration Definitions (Context Optimization)
+# ------------------------------------------------------------------------------
+# Avoids unnecessary circular references and recursive container configuration files.
+Dockerfile
+docker-compose*.yaml
+
+# ------------------------------------------------------------------------------
+# 5. Documentation & Markdown Files (Context Optimization & Attack Surface Reduction)
+# ------------------------------------------------------------------------------
+# Excludes documentation files which are not required for production container runtime.
+README.md
+*.md
+
+# ------------------------------------------------------------------------------
+# 6. Test Suites, Coverage & Internal Automation (Security & Image Footprint)
+# ------------------------------------------------------------------------------
+# Prevents test fixtures, mocks, vulnerability scripts, and test data from runtime access.
+tests/
+# Excludes internal operational/deployment shell scripts from container image layers.
+scripts/
+# Excludes local demonstration material.
+demo/
+# Excludes architectural and API documentation assets.
+docs/
+# Excludes generated build and analysis artifacts.
+artifacts/
+# Excludes code coverage reports and test metrics.
+coverage/
+
+# ------------------------------------------------------------------------------
+# 7. CI/CD Workflows, Kubernetes Manifests & Developer Tooling
+# ------------------------------------------------------------------------------
+# Excludes GitHub Actions workflows and automation runners.
+.github/
+# Infrastructure-as-Code manifests belong in orchestrators, not inside the API image.
+k8s/
+# Excludes local IDE metadata, editor settings, and workspace preferences.
+.vscode/
+.idea/
+
+# ------------------------------------------------------------------------------
+# 8. Local Binaries & Host Executables (Security & Integrity)
+# ------------------------------------------------------------------------------
+# Excludes host-specific management utilities and Windows/Linux executables.
+kubectl.exe

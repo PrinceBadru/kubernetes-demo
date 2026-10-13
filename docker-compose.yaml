@@ -1,0 +1,199 @@
+# ==============================================================================
+# DevSecOps Multi-Service Docker Compose Architecture
+# Project: DevSecOps Kubernetes Demo
+# Stack: API (Node.js 18) + Database (PostgreSQL 15) + Cache (Redis 7)
+#
+# Core DevSecOps Principles Implemented:
+# 1. NETWORK ISOLATION (Defense in Depth):
+#    Only the API service exposes an ingress port (3000) to the host.
+#    PostgreSQL (5432) and Redis (6379) are completely unexposed to the host and external
+#    networks. They communicate exclusively across the private, bridge-isolated
+#    'backend' network, denying direct external access and minimizing attack vectors.
+#
+# 2. DEPENDENCY GATING (Health Checks):
+#    Services employ rigorous health checks. The API declares explicit dependencies on
+#    'postgres' and 'redis' with 'condition: service_healthy'. This eliminates race
+#    conditions and crash-loop backoffs during initial container boot, ensuring the API
+#    never attempts connections before database and caching tiers are fully initialized.
+#
+# 3. RESOURCE GOVERNANCE (Resource Abuse Prevention / CIS Benchmark):
+#    Each container defines explicit CPU and Memory resource limits. This protects the
+#    host node against Denial of Service (DoS), rogue query memory spikes, and memory
+#    leaks by preventing "noisy neighbor" starvation.
+#
+# 4. AVAILABILITY & SELF-HEALING (Restart Policies):
+#    All services configure 'restart: unless-stopped' to recover automatically from
+#    transient faults and system reboots while respecting administrative intervention.
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. API Service (Application Gateway & Business Logic Tier)
+  # ----------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devsecops-demo-api
+    restart: unless-stopped
+
+    # Network Security: Single entry point into the application stack.
+    # Exposes port 3000 externally for client ingress while proxying requests internally.
+    ports:
+      - "3000:3000"
+
+    # Dependency Gating: Enforces readiness sequencing before starting API processes.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    # Environment Configuration with secure defaults and .env file override capability
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=auditor
+      - POSTGRES_USER=app
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change_this_in_production}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+    # Health Check: Validates liveness using Alpine native wget on lightweight /healthz
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # Resource Limits: Enforces strict resource constraints to prevent container starvation
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+
+    networks:
+      - backend
+
+    labels:
+      app.kubernetes.io/name: "devsecops-demo-api"
+      app.kubernetes.io/component: "api"
+      app.kubernetes.io/part-of: "devsecops-demo"
+
+  # ----------------------------------------------------------------------------
+  # 2. PostgreSQL Service (Stateful Relational Persistence Tier)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: devsecops-demo-postgres
+    restart: unless-stopped
+
+    # Security: NO external ports mapped to host interface.
+    # PostgreSQL is accessible solely via DNS name 'postgres' on the internal 'backend' network.
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_in_production}
+      POSTGRES_DB: ${POSTGRES_DB:-auditor}
+
+    # Volume Persistence: Preserves database states across container lifecycle events
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Health Check: Probes Postgres socket to ensure database acceptance of client queries
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d auditor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Resource Limits: Protects database server from memory ballooning and runaway queries
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+        reservations:
+          cpus: "0.20"
+          memory: 256M
+
+    networks:
+      - backend
+
+    labels:
+      app.kubernetes.io/name: "postgres"
+      app.kubernetes.io/component: "database"
+      app.kubernetes.io/part-of: "devsecops-demo"
+
+  # ----------------------------------------------------------------------------
+  # 3. Redis Service (In-Memory Caching & Session Tier)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: devsecops-demo-redis
+    restart: unless-stopped
+
+    # Security: NO external ports mapped to host interface.
+    # Redis is reachable solely by internal services on the isolated 'backend' network.
+
+    # Memory Hardening: Constrains memory utilization and evicts least-recently-used keys
+    # to prevent out-of-memory kernel termination (OOM kill).
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+
+    # Health Check: Pings the Redis daemon to verify thread responsiveness
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+    # Resource Limits: Restricts Redis memory and CPU to predictable operating limits
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+
+    networks:
+      - backend
+
+    labels:
+      app.kubernetes.io/name: "redis"
+      app.kubernetes.io/component: "cache"
+      app.kubernetes.io/part-of: "devsecops-demo"
+
+# ------------------------------------------------------------------------------
+# Networks Definition
+# ------------------------------------------------------------------------------
+networks:
+  # Internal bridge network providing DNS resolution and traffic isolation
+  backend:
+    driver: bridge
+    labels:
+      app.kubernetes.io/name: "devsecops-demo-network"
+      app.kubernetes.io/part-of: "devsecops-demo"
+
+# ------------------------------------------------------------------------------
+# Volumes Definition
+# ------------------------------------------------------------------------------
+volumes:
+  # Dedicated named volume for stateful database storage
+  postgres_data:
+    labels:
+      app.kubernetes.io/name: "postgres-data"
+      app.kubernetes.io/part-of: "devsecops-demo"
