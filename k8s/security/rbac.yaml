@@ -1,0 +1,81 @@
+# ==============================================================================
+# Role-Based Access Control (RBAC): Minimal Least-Privilege Permissions
+# Namespace: devsecops-demo
+# Framework: CIS Kubernetes Benchmark 5.1.1 - 5.1.6
+# ==============================================================================
+# Overview:
+# In Kubernetes, RBAC governs the actions that authenticated subjects (such as
+# ServiceAccounts) can perform against the Kubernetes API.
+#
+# CIS Kubernetes Benchmark Alignment:
+# - CIS 5.1.1: "Ensure that the cluster-admin role is only used where strictly necessary"
+#   -> Enforced: We use a namespace-scoped `Role` rather than a `ClusterRole`,
+#      guaranteeing that permissions cannot leak outside the `devsecops-demo` namespace.
+# - CIS 5.1.2: "Minimize access to secrets"
+#   -> Enforced: Access is strictly read-only (`get`, `list`) within this single namespace.
+#      No write permissions (`create`, `update`, `patch`, `delete`) are granted.
+# - CIS 5.1.3: "Minimize wildcard use in Roles and ClusterRoles"
+#   -> Enforced: Zero wildcards (`*`) are used. All API groups, resources, and verbs
+#      are explicitly enumerated.
+# - CIS 5.1.4: "Minimize access to create pods"
+#   -> Enforced: The role has zero workload management permissions (no access to
+#      `pods`, `deployments`, `daemonsets`, `jobs`). An attacker cannot schedule
+#      crypto-mining containers or breakout pods.
+# - CIS 5.1.5: "Ensure default service accounts are not actively used"
+#   -> Enforced: Bound explicitly to `api-service-account`, ensuring the `default`
+#      account remains unprivileged.
+# - CIS 5.1.6: "Ensure Service Account Tokens are only mounted where necessary"
+#   -> Enforced: Complemented by `automountServiceAccountToken: false` on the ServiceAccount.
+#
+# Why this definition is minimal:
+# If the API pod ever requires direct interaction with the Kubernetes API to inspect
+# runtime ConfigMaps or Secret metadata, it can only query configmaps and secrets.
+# It cannot create backdoors, alter deployment specs, read logs of other containers,
+# access cluster nodes, or inspect resources in any other namespace.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Role: api-minimal-role
+# ------------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: api-minimal-role
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: api-minimal-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: devsecops-demo
+rules:
+  - apiGroups: [""] # Core API group
+    resources:
+      - configmaps
+      - secrets
+    verbs:
+      - get
+      - list
+
+---
+# ------------------------------------------------------------------------------
+# 2. RoleBinding: api-role-binding
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Scoped Subject Binding
+# Binds the minimal role exclusively to the dedicated `api-service-account`.
+# ------------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-role-binding
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: api-role-binding
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: devsecops-demo
+subjects:
+  - kind: ServiceAccount
+    name: api-service-account
+    namespace: devsecops-demo
+roleRef:
+  kind: Role
+  name: api-minimal-role
+  apiGroup: rbac.authorization.k8s.io

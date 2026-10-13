@@ -1,0 +1,370 @@
+# ==============================================================================
+# Kubernetes Network Policies: DevSecOps Zero-Trust Architecture
+# Namespace: devsecops-demo
+# Framework: NIST SP 800-207 (Zero Trust Architecture) & Least Privilege
+# ==============================================================================
+# Overview:
+# In standard Kubernetes clusters, the default network model is flat and open:
+# any pod can communicate with any other pod across any namespace. This model
+# violates fundamental security engineering principles.
+#
+# This manifest establishes an enterprise micro-segmentation architecture:
+# 1. Base Layer: Default-Deny-All ingress and egress (Zero-Trust baseline).
+# 2. Ingress Tier: Ingress controller and Prometheus scrape access to API only.
+# 3. Application Tier: API egress to Database (Postgres) and Cache (Redis).
+# 4. Service Discovery: Scoped DNS egress to CoreDNS/kube-dns in kube-system.
+#
+# Blast Radius & Micro-Segmentation:
+# If an attacker achieves Remote Code Execution (RCE) on the API pod, they:
+# - CANNOT pivot to other internal namespaces (e.g., kube-system, monitoring).
+# - CANNOT scan internal cluster subnets or cloud metadata APIs (169.254.169.254).
+# - CANNOT exfiltrate data via arbitrary outbound internet connections.
+# - CAN ONLY reach Postgres on port 5432, Redis on port 6379, and CoreDNS on port 53.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Foundation: Default Deny All Ingress and Egress
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: NIST SP 800-207 Zero Trust Architecture (ZTA)
+# "Never Trust, Always Verify." Every communication link must be explicitly
+# declared and authenticated. By applying this policy with an empty podSelector,
+# all pods in the devsecops-demo namespace are immediately isolated.
+#
+# What happens if removed:
+# The namespace falls back to permissive defaults. If any pod is breached, the
+# attacker has unrestricted network access to perform lateral movement, internal
+# port scanning, and command-and-control (C2) callback beacons.
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: default-deny-all
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  podSelector: {} # Selects all pods in the devsecops-demo namespace
+  policyTypes:
+    - Ingress
+    - Egress
+  # Empty ingress and egress lists mean NO incoming or outgoing traffic is allowed.
+
+---
+# ------------------------------------------------------------------------------
+# 2. Ingress Tier: Allow API Ingress (Ingress Controller & Prometheus Monitoring)
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Principle of Least Privilege (PoLP) & Perimeter Defense
+# Only designated upstream components are permitted to establish TCP connections
+# to the API container on its serving port (3000):
+# a) Ingress Controller (ingress-nginx namespace) for legitimate user HTTP traffic.
+# b) Prometheus (monitoring namespace) for scraping operational /metrics.
+#
+# What happens if removed:
+# - Removing Ingress rule: End users receive HTTP 502/504 Bad Gateway errors;
+#   external ingress routing to the backend service fails.
+# - Removing Monitoring rule: Prometheus cannot scrape metrics; alerts for error
+#   rates, latency, and CPU/memory saturation fail to trigger (observability blind spot).
+#
+# Blast Radius Containment:
+# Other application pods within the cluster (or even within this namespace)
+# cannot send unsolicited traffic to the API on port 3000 unless explicitly authorized.
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-ingress
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: allow-api-ingress
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  policyTypes:
+    - Ingress
+  ingress:
+    # Rule 1: Allow inbound traffic from NGINX Ingress Controller namespace on port 3000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Rule 2: Allow metrics scraping from Prometheus in the monitoring namespace on port 3000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 3000
+
+---
+# ------------------------------------------------------------------------------
+# 3. Data Tier: Allow API to PostgreSQL (Port 5432)
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Micro-Segmentation / Tier-to-Tier Isolation
+# This policy enables the bidirectional flow between the Application Tier and
+# the Database Tier:
+# - Egress from API pods to PostgreSQL pods on TCP port 5432.
+# - Ingress to PostgreSQL pods from API pods on TCP port 5432.
+#
+# What happens if removed:
+# - If Egress from API is removed: API cannot issue SQL queries; calls to database
+#   endpoints fail with connection timeout/refused errors.
+# - If Ingress to Postgres is removed: PostgreSQL drops SYN packets from the API due
+#   to default-deny; the API cannot connect even if API egress is open.
+#
+# Blast Radius Containment:
+# - PostgreSQL is strictly isolated: neither the ingress controller, nor Redis,
+#   nor external internet actors can open a direct TCP connection to port 5432.
+# - SQL injection or database attacks can only originate through the validated API logic.
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-postgres
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: allow-api-to-postgres
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - api
+          - postgres
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Postgres pods to accept incoming TCP traffic on port 5432 from API pods only
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    # Allow API pods to send outbound TCP traffic on port 5432 to Postgres pods only
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# ------------------------------------------------------------------------------
+# 4. Cache Tier: Allow API to Redis (Port 6379)
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Micro-Segmentation / Tier-to-Tier Isolation
+# This policy governs the caching channel:
+# - Egress from API pods to Redis pods on TCP port 6379.
+# - Ingress to Redis pods from API pods on TCP port 6379.
+#
+# What happens if removed:
+# - The API cannot communicate with Redis. Cache hits drop to 0%, session stores
+#   fail, and the application must either degrade gracefully or fail requests.
+#
+# Blast Radius Containment:
+# - Redis is never exposed outside the internal namespace boundary.
+# - Prevents Redis unauthenticated access exploitation (a common attack vector where
+#   misconfigured Redis instances permit unauthorized key tampering or remote code execution).
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-redis
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: allow-api-to-redis
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - api
+          - redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Redis pods to accept incoming TCP traffic on port 6379 from API pods only
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress:
+    # Allow API pods to send outbound TCP traffic on port 6379 to Redis pods only
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+# ------------------------------------------------------------------------------
+# 5. Service Discovery: Allow API DNS Resolution (Port 53 UDP/TCP)
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Controlled Infrastructure Service Discovery
+# In Kubernetes, services communicate via cluster DNS names (e.g.
+# postgres.devsecops-demo.svc.cluster.local). Because default-deny blocks all
+# egress, the API cannot resolve hostnames without explicit authorization to
+# query kube-dns / CoreDNS in the kube-system namespace on port 53.
+#
+# What happens if removed:
+# Cluster DNS resolution breaks immediately. The API cannot resolve 'postgres'
+# or 'redis' service names, resulting in 'EAI_AGAIN' or 'ENOTFOUND' errors,
+# even if direct IP egress was permitted.
+#
+# Blast Radius Containment:
+# Restricting DNS egress to port 53 within kube-system prevents DNS tunneling /
+# DNS-based data exfiltration to external malicious nameservers.
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-dns
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: allow-api-dns
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchExpressions:
+              - key: k8s-app
+                operator: In
+                values:
+                  - kube-dns
+                  - coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ------------------------------------------------------------------------------
+# 6. Service Discovery: Allow PostgreSQL DNS Resolution (Port 53 UDP/TCP)
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Controlled Infrastructure Service Discovery
+# Allows Postgres pods to resolve hostnames within the cluster via CoreDNS.
+#
+# What happens if removed:
+# Postgres cannot perform DNS lookups for internal service discovery (such as
+# archive targets, replication nodes, or directory services).
+#
+# Blast Radius Containment:
+# Postgres egress is strictly pinned to CoreDNS on port 53; Postgres cannot
+# contact arbitrary external network endpoints.
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-dns
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: allow-postgres-dns
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchExpressions:
+              - key: k8s-app
+                operator: In
+                values:
+                  - kube-dns
+                  - coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ------------------------------------------------------------------------------
+# 7. Service Discovery: Allow Redis DNS Resolution (Port 53 UDP/TCP)
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Controlled Infrastructure Service Discovery
+# Allows Redis pods to resolve internal cluster endpoints through CoreDNS.
+#
+# What happens if removed:
+# Redis cannot resolve any hostname references (e.g., Redis Sentinel, replicas,
+# or monitoring telemetry endpoints).
+#
+# Blast Radius Containment:
+# Redis is confined to internal cluster DNS on port 53; all other outbound
+# network paths remain blocked by default-deny.
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-dns
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: allow-redis-dns
+    app.kubernetes.io/component: network-policy
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchExpressions:
+              - key: k8s-app
+                operator: In
+                values:
+                  - kube-dns
+                  - coredns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

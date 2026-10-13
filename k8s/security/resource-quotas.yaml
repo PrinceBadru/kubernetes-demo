@@ -1,0 +1,103 @@
+# ==============================================================================
+# Resource Governance: ResourceQuota and LimitRange
+# Namespace: devsecops-demo
+# Framework: Defense-in-Depth Resource Isolation & Availability Governance
+# ==============================================================================
+# Overview:
+# Resource management in Kubernetes is an essential pillar of DevSecOps.
+# Unrestricted namespaces expose the entire cluster to Denial-of-Service (DoS)
+# vectors, noisy neighbor disruptions, and control plane (etcd) saturation.
+#
+# Threat Model:
+# 1. Compute Starvation (DoS):
+#    A runaway workload, memory leak, or crypto-miner inside a compromised
+#    container could consume all compute on a node, causing the Linux OOM killer
+#    to terminate neighboring pods (including critical daemons like CoreDNS).
+# 2. Control Plane Exhaustion:
+#    Flooding the API server with excessive objects (hundreds of Services,
+#    ConfigMaps, or Pods) inflates etcd storage, leading to database fragmentation,
+#    high latency in raft consensus, and potential cluster-wide failure.
+#
+# DevSecOps Mitigation:
+# 1. ResourceQuota (`namespace-quota`):
+#    Caps total aggregated CPU, memory, pods, and metadata objects allowable
+#    within the `devsecops-demo` namespace.
+# 2. LimitRange (`default-limits`):
+#    Enforces baseline request and limit defaults on any container deployed
+#    without explicit resource specifications, ensuring no unconstrained
+#    containers ever enter the runtime.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. ResourceQuota: namespace-quota
+# ------------------------------------------------------------------------------
+# Defines hard aggregate boundaries for compute capacity and object counts:
+# - requests.cpu: 4 cores
+# - requests.memory: 4 GiB
+# - limits.cpu: 8 cores
+# - limits.memory: 8 GiB
+# - pods: 20 (accommodates API 2-5 replicas + Postgres + Redis + maintenance pods)
+# - services: 10
+# - secrets: 10
+# - configmaps: 10
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: namespace-quota
+    app.kubernetes.io/component: resource-governance
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 4Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    pods: "20"
+    services: "10"
+    secrets: "10"
+    configmaps: "10"
+
+---
+# ------------------------------------------------------------------------------
+# 2. LimitRange: default-limits
+# ------------------------------------------------------------------------------
+# DevSecOps Principle: Automated Baseline Enforcement
+# When a ResourceQuota constrains compute requests and limits, Kubernetes will
+# reject pod creation if containers omit those specifications.
+#
+# This LimitRange automatically injects sensible default requests and limits into
+# any container created in devsecops-demo that lacks explicit specifications,
+# while setting absolute guardrails (min/max):
+# - defaultRequest: 100m CPU, 128Mi Memory (baseline allocation)
+# - default (Limit): 500m CPU, 512Mi Memory (prevents runaway consumption)
+# - max: 2 CPU, 2Gi Memory (single container ceiling)
+# - min: 50m CPU, 64Mi Memory (prevents under-provisioned, flaky pods)
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: devsecops-demo
+  labels:
+    app.kubernetes.io/name: default-limits
+    app.kubernetes.io/component: resource-governance
+    app.kubernetes.io/part-of: devsecops-demo
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "2"
+        memory: 2Gi
+      min:
+        cpu: 50m
+        memory: 64Mi
