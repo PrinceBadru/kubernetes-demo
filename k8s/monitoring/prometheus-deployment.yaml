@@ -1,0 +1,225 @@
+# =============================================================================
+# DevSecOps Principle: Least-Privilege Role-Based Access Control (RBAC)
+# Monitoring engines require cluster-wide visibility to discover scraping targets
+# (pods, nodes, endpoints). Granting granular, read-only permissions (get, list, watch)
+# without write or mutate privileges strictly enforces the Principle of Least Privilege.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+rules:
+  # DevSecOps Principle: Granular Resource Access
+  # Read-only access to core resources for Prometheus kubernetes_sd_configs
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/metrics
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  # Access to workload controllers for metadata enrichment
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - daemonsets
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+  # Permission to query raw node/kubelet metric endpoints
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+
+---
+# =============================================================================
+# DevSecOps Principle: Prometheus Server Deployment Hardening
+# - Runs strictly as non-root (nobody: 65534)
+# - Immutable read-only root filesystem with dedicated scratch volumes
+# - All Linux capabilities dropped
+# - Resource limits preventing noisy-neighbor Denial of Service
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/component: monitoring
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/component: monitoring
+        app.kubernetes.io/part-of: devsecops-demo
+        app.kubernetes.io/managed-by: kubectl
+    spec:
+      serviceAccountName: prometheus
+      # -----------------------------------------------------------------------
+      # DevSecOps Principle: Pod Security Standards (Restricted Profile)
+      # 1. runAsNonRoot: Blocks root execution.
+      # 2. runAsUser/runAsGroup 65534 (nobody:nobody): Standard unprivileged user.
+      # 3. fsGroup 65534: Grants TSDB volume write access to the nobody group.
+      # 4. seccompProfile: RuntimeDefault restricts dangerous system calls.
+      # -----------------------------------------------------------------------
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.48.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=24h"
+            - "--web.enable-lifecycle"
+          ports:
+            - name: web
+              containerPort: 9090
+              protocol: TCP
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Container-Level Least Privilege
+          # - allowPrivilegeEscalation: false prevents setuid binary attacks.
+          # - readOnlyRootFilesystem: true locks the container OS image against modification.
+          # - drop ALL capabilities: Removes kernel privileges like CAP_SYS_ADMIN, CAP_NET_RAW.
+          # -------------------------------------------------------------------
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            capabilities:
+              drop:
+                - ALL
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Resource Quotas & Denial-of-Service Defense
+          # Prevents runaway memory leaks or high query concurrency from crashing nodes.
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # -------------------------------------------------------------------
+          # DevSecOps Principle: Health Observability & Probes
+          # Ensures traffic is only routed when the TSDB engine is initialized and ready.
+          # -------------------------------------------------------------------
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          volumeMounts:
+            # Mount read-only Prometheus and Alertmanager rule configuration
+            - name: config-volume
+              mountPath: /etc/prometheus
+              readOnly: true
+            # Mount TSDB persistence directory (must be writable by UID 65534)
+            - name: storage-volume
+              mountPath: /prometheus
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-config
+        - name: storage-volume
+          emptyDir: {}
+
+---
+# =============================================================================
+# DevSecOps Principle: Service Exposition & Network Segmentation
+# Exposes Prometheus via NodePort 30090 for local developer & operator access,
+# while maintaining a standard ClusterIP internal port (9090) for Grafana datasources.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+  ports:
+    - name: web
+      port: 9090
+      targetPort: 9090
+      nodePort: 30090
+      protocol: TCP

@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    # -------------------------------------------------------------------------
+    # DevSecOps Principle: Resource Tracking & Standardization Labels
+    # Conforms to Kubernetes recommended label specifications for governance,
+    # auditing, cost-allocation, and service mesh / monitoring inventory.
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/component: monitoring-stack
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+
+    # -------------------------------------------------------------------------
+    # DevSecOps Principle: Pod Security Admission (PSA) Isolation
+    # Pod Security Admission provides built-in policy enforcement at the namespace
+    # boundary without requiring external admission webhooks.
+    #
+    # - Enforce (baseline): Prevents known privilege escalation vectors (hostPID,
+    #   hostIPC, privileged containers) while allowing monitoring agents to scrape
+    #   node metrics and access cluster telemetry endpoints.
+    # - Audit & Warn (restricted): Generates audit events and CLI warnings if any
+    #   pod does not satisfy the strictest 'restricted' profile (e.g. read-only
+    #   root filesystem, dropping all capabilities, non-root user).
+    # -------------------------------------------------------------------------
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

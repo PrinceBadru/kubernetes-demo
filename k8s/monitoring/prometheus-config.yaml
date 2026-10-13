@@ -1,0 +1,243 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    # -------------------------------------------------------------------------
+    # Resource Identification Labels
+    # Standard labels for governance, discovery, and cluster auditing.
+    # -------------------------------------------------------------------------
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: devsecops-demo
+    app.kubernetes.io/managed-by: kubectl
+data:
+  # ===========================================================================
+  # PROMETHEUS CORE SERVER CONFIGURATION
+  # ===========================================================================
+  # DevSecOps Observability Principles:
+  # 1. Three Pillars of Observability (Metrics, Logs, Traces):
+  #    Metrics provide real-time, low-overhead aggregated time-series telemetry
+  #    essential for detecting anomalies, triggering automated alerts, and driving
+  #    horizontal pod autoscaling (HPA).
+  # 2. Continuous Monitoring & Automated Feedback:
+  #    Telemetry collected at runtime feeds back into the DevSecOps lifecycle,
+  #    validating deployment health, enforcing Service Level Objectives (SLOs),
+  #    and safeguarding error budgets.
+  # 3. Principle of Least Privilege in Service Discovery:
+  #    Kubernetes Service Discovery (SD) is tightly scoped to target namespaces
+  #    and verified pod labels to prevent metric cardinality sprawl and unauthorized
+  #    data exposure.
+  # ===========================================================================
+  prometheus.yml: |
+    global:
+      # Scrape interval defines the granularity of time-series data
+      scrape_interval: 15s
+      # Evaluation interval defines how frequently alerting rules are evaluated
+      evaluation_interval: 15s
+      scrape_timeout: 10s
+      external_labels:
+        environment: demo
+        cluster: kubernetes-devsecops
+
+    # Rule files containing alert specifications and recording rules
+    rule_files:
+      - /etc/prometheus/alerts.yml
+
+    # Scrape configurations defining targets and relabeling rules
+    scrape_configs:
+      # -----------------------------------------------------------------------
+      # Scrape Job: api (DevSecOps Demo Application)
+      # Scrapes Prometheus metrics exposed on /metrics at port 3000 from pods
+      # running in the 'devsecops-demo' namespace labeled app.kubernetes.io/name=api.
+      # -----------------------------------------------------------------------
+      - job_name: 'api'
+        metrics_path: /metrics
+        scrape_interval: 15s
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - devsecops-demo
+        relabel_configs:
+          # DevSecOps Principle: Target Filter & Least Privilege Scraping
+          # Filter pods matching the API app label to avoid unnecessary scrapes
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: api
+
+          # Ensure scrape connects to the application HTTP port 3000
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: "3000"
+
+          # DevSecOps Principle: Dimensional Telemetry Enrichment
+          # Populate clear, queryable dimensional labels for Grafana & Alertmanager
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            action: replace
+            target_label: container
+
+      # -----------------------------------------------------------------------
+      # Scrape Job: kubernetes-nodes
+      # DevSecOps Principle: Infrastructure Health & Resource Monitoring
+      # Queries the Kubernetes API server proxy to scrape Kubelet summary metrics
+      # using in-cluster ServiceAccount TLS credentials and tokens.
+      # -----------------------------------------------------------------------
+      - job_name: 'kubernetes-nodes'
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics
+
+      # -----------------------------------------------------------------------
+      # Scrape Job: prometheus (Self-Monitoring)
+      # DevSecOps Principle: "Who watches the watchers"
+      # Ensures the monitoring engine itself does not suffer TSDB exhaustion,
+      # compaction failures, or scrape drops.
+      # -----------------------------------------------------------------------
+      - job_name: 'prometheus'
+        scrape_interval: 15s
+        static_configs:
+          - targets: ['localhost:9090']
+
+  # ===========================================================================
+  # ALERTING RULES SPECIFICATION
+  # ===========================================================================
+  # DevSecOps Alerting Principles:
+  # 1. Actionability: Every alert has a clear, actionable runbook and description.
+  # 2. Symptom vs Cause: Alerts monitor customer-impacting symptoms (latency, errors)
+  #    as well as leading indicators of failure (memory saturation, dependency drops).
+  # 3. Severity Tiers:
+  #    - critical: Immediate threat to availability or data integrity; requires immediate on-call response.
+  #    - warning: Non-immediate threat or localized degradation; requires investigation during working hours.
+  # 4. Debouncing ('for' duration): Prevents transient metric spikes from triggering false alarms.
+  # ===========================================================================
+  alerts.yml: |
+    groups:
+      - name: devsecops-api-alerts
+        rules:
+          # -------------------------------------------------------------------
+          # Alert 1: HighErrorRate (Golden Signal: Errors)
+          # Fires when HTTP 5xx responses exceed 5% of total traffic for 2 minutes.
+          # DevSecOps Principle: Guarding the Error Budget & SLO protection.
+          # -------------------------------------------------------------------
+          - alert: HighErrorRate
+            expr: rate(http_requests_total{status_code=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+              category: availability
+              pillar: metrics
+            annotations:
+              summary: "API 5xx error rate exceeds 5%"
+              description: "API server error rate has exceeded 5% over the last 5 minutes. Current failure ratio is {{ $value | humanizePercentage }}. Immediate investigation required to prevent SLO burn."
+              runbook_url: "https://github.com/devsecops-demo/runbooks/blob/main/incidents/high-error-rate.md"
+
+          # -------------------------------------------------------------------
+          # Alert 2: HighLatency (Golden Signal: Latency)
+          # Fires when the 99th percentile HTTP request duration exceeds 1 second.
+          # DevSecOps Principle: Catching performance degradation before customer churn.
+          # -------------------------------------------------------------------
+          - alert: HighLatency
+            expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 1
+            for: 5m
+            labels:
+              severity: warning
+              category: performance
+              pillar: metrics
+            annotations:
+              summary: "API p99 request latency exceeds 1s"
+              description: "The 99th percentile HTTP request duration is currently {{ $value | humanizeDuration }} (threshold: > 1s). Investigate slow database queries or upstream network contention."
+              runbook_url: "https://github.com/devsecops-demo/runbooks/blob/main/incidents/high-latency.md"
+
+          # -------------------------------------------------------------------
+          # Alert 3: PodRestartLoop (Reliability & CrashLoopBackOff)
+          # Fires when a container in devsecops-demo restarts more than 3 times in 1 hour.
+          # DevSecOps Principle: Early detection of unhandled exceptions, panics, or OOMKills.
+          # -------------------------------------------------------------------
+          - alert: PodRestartLoop
+            expr: increase(kube_pod_container_status_restarts_total{namespace="devsecops-demo"}[1h]) > 3
+            labels:
+              severity: critical
+              category: stability
+              pillar: metrics
+            annotations:
+              summary: "Pod restart loop detected in devsecops-demo"
+              description: "Pod {{ $labels.pod }} in namespace devsecops-demo restarted {{ $value }} times within the last hour. Container may be trapped in CrashLoopBackOff."
+              runbook_url: "https://github.com/devsecops-demo/runbooks/blob/main/incidents/crash-loop-backoff.md"
+
+          # -------------------------------------------------------------------
+          # Alert 4: PostgresDown (Downstream Dependency: Database)
+          # Fires when the API synthetic health check reports PostgreSQL is DOWN.
+          # DevSecOps Principle: Continuous health verification of persistent data tier.
+          # -------------------------------------------------------------------
+          - alert: PostgresDown
+            expr: health_check_status{service="postgres"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              category: dependency
+              pillar: metrics
+            annotations:
+              summary: "PostgreSQL dependency is DOWN"
+              description: "The API health check indicates PostgreSQL is unreachable or failing connectivity checks for > 1m. Read/write operations are impacted."
+              runbook_url: "https://github.com/devsecops-demo/runbooks/blob/main/incidents/postgres-down.md"
+
+          # -------------------------------------------------------------------
+          # Alert 5: RedisDown (Downstream Dependency: Cache)
+          # Fires when the API synthetic health check reports Redis cache is DOWN.
+          # DevSecOps Principle: Cache degradation warning before backend DB overload.
+          # -------------------------------------------------------------------
+          - alert: RedisDown
+            expr: health_check_status{service="redis"} == 0
+            for: 1m
+            labels:
+              severity: warning
+              category: dependency
+              pillar: metrics
+            annotations:
+              summary: "Redis cache dependency is DOWN"
+              description: "The API health check indicates Redis cache is unreachable for > 1m. System operating in degraded cache-bypass mode; backend database may experience increased load."
+              runbook_url: "https://github.com/devsecops-demo/runbooks/blob/main/incidents/redis-down.md"
+
+          # -------------------------------------------------------------------
+          # Alert 6: HighMemoryUsage (Golden Signal: Saturation)
+          # Fires when container memory exceeds 90% of its configured limit for 5 minutes.
+          # DevSecOps Principle: Proactive defense against Out-Of-Memory (OOMKill) termination.
+          # -------------------------------------------------------------------
+          - alert: HighMemoryUsage
+            expr: container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9
+            for: 5m
+            labels:
+              severity: warning
+              category: saturation
+              pillar: metrics
+            annotations:
+              summary: "Container memory usage exceeds 90% of limit"
+              description: "Container {{ $labels.container }} in pod {{ $labels.pod }} is utilizing {{ $value | humanizePercentage }} of its memory allocation. Pod is at immediate risk of Linux OOMKiller eviction."
+              runbook_url: "https://github.com/devsecops-demo/runbooks/blob/main/incidents/high-memory.md"
