@@ -89,3 +89,17 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Run Prettier check
         run: npx prettier --check .
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Fast Local Testing (Zero Cluster Dependency)
+      # Executes application-level unit, route, security header, and parameterized query tests.
+      # ------------------------------------------------------------------------
+      - name: Run local unit & integration tests
+        run: npm test
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Scenario & Demonstration Contract Integrity
+      # Validates that all demonstration scenarios and referenced source files exist.
+      # ------------------------------------------------------------------------
+      - name: Validate scenario catalog contract
+        run: npm run validate:catalog

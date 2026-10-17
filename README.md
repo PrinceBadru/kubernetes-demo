@@ -171,6 +171,72 @@ kubernetes-demo/
 
 ---
 
+## 🎯 Scope, Boundaries & Limitations
+
+This repository is an **educational reference implementation and runnable DevSecOps showcase**. It illustrates how declarative security policies, Pod Security Standards, Zero-Trust network microsegmentation, and Site Reliability Engineering principles are practically deployed in Kubernetes.
+
+### What is Implemented & Verified
+
+- **Hardened Application Runtime:** Express.js API on Node 18 LTS running with non-root UID 1001, immutable read-only root filesystem, stripped Linux kernel capabilities, and OWASP security headers.
+- **SQL Injection Defense:** Real database-backed endpoint at `GET /api/records` using parameterized queries (`$1`, `$2`), strict type validation, and seed data, verified by automated tests asserting HTTP 200/400 and zero data leaks.
+- **Zero-Trust Network Policies:** Declarative default-deny ingress and egress policies with explicit pod selector whitelisting, preventing lateral pod-to-pod pivoting.
+- **Decoupled SRE Health Probes:** Separation of shallow liveness (`/healthz`) from deep dependency checking (`/api/health`) to prevent cascading crash loops.
+- **Layered Automated Testing:** Local unit test layer (`npm test`) running completely offline without clusters, cluster integration tests (`npm run test:cluster`), and declarative scenario catalog validation (`npm run validate:catalog`).
+- **Safe & Reversible Demos:** Shared preflight checks context safety, gates destructive operations with confirmation prompts, and uses signal traps to restore cluster state.
+
+### What is Illustrative & NOT Validated for Production
+
+- **Stateful PostgreSQL:** Deployed as a single-replica demo StatefulSet with ephemeral/local storage. Production deployments require managed databases (e.g. AWS RDS, GCP Cloud SQL) or high-availability operators (e.g. CloudNativePG) with automated backups and replication.
+- **Credential Storage:** Secrets are stored as standard Kubernetes Secrets for demo simplicity. Production deployments should integrate external secret managers (e.g. HashiCorp Vault, AWS Secrets Manager, Sealed Secrets).
+- **Ingress & Certificates:** Uses self-signed or demo TLS certs with local ingress hostnames. Production requires automated certificate lifecycle management (e.g. cert-manager with Let's Encrypt).
+- **Observability Stack:** Single-replica Prometheus and Grafana instances run without persistent volumes or remote storage backends.
+
+### Local Demo Safety Warning
+
+Demo scripts in `demo/` alter running cluster state (e.g. killing pods, scaling Redis to zero, running ephemeral attacker containers, and establishing port-forward tunnels). Demos enforce context safety checks that restrict execution to recognized disposable local clusters (`kind-*`, `minikube*`, `k3d-*`, `docker-desktop`).
+
+---
+
+## 🔍 Component Verification Matrix
+
+Every architectural and security claim made in this repository is explicitly mapped to its implementing manifest and its automated verification mechanism:
+
+| Control / Claim                         | Category             | Implementation Manifest / Code                                         | Verification Method                                             | Status                | Scenario ID     |
+| :-------------------------------------- | :------------------- | :--------------------------------------------------------------------- | :-------------------------------------------------------------- | :-------------------- | :-------------- |
+| **Non-Root Execution (UID 1001)**       | Container Hardening  | `k8s/base/api-deployment.yaml`, `Dockerfile`                           | `tests/security/container-security.test.sh`                     | Verified Live         | `SCN-PSS-01`    |
+| **Immutable Root Filesystem**           | Container Hardening  | `k8s/base/api-deployment.yaml`                                         | `demo/06-simulate-attack.sh` (Attack 3)                         | Verified Live         | `SCN-FS-01`     |
+| **Capability Dropping (`ALL`)**         | Kernel Hardening     | `k8s/base/api-deployment.yaml`                                         | `tests/security/container-security.test.sh`                     | Verified Live         | `SCN-PSS-01`    |
+| **ServiceAccount Token Isolation**      | Identity Isolation   | `k8s/base/api-deployment.yaml` (`automountServiceAccountToken: false`) | `tests/security/container-security.test.sh`                     | Verified Live         | `SCN-RBAC-01`   |
+| **Pod Security Standards (Restricted)** | Admission Control    | `k8s/namespace.yaml`                                                   | `tests/security/container-security.test.sh`                     | Verified Live         | `SCN-PSS-01`    |
+| **Zero-Trust Default Deny**             | Network Security     | `k8s/security/network-policies.yaml`                                   | `tests/security/network-policy.test.sh`                         | Verified Live         | `SCN-NETPOL-01` |
+| **Lateral Movement Drop**               | Network Security     | `k8s/security/network-policies.yaml`                                   | `demo/06-simulate-attack.sh` (Attack 5)                         | Verified Live         | `SCN-NETPOL-01` |
+| **Egress Internet Blocking**            | Network Security     | `k8s/security/network-policies.yaml`                                   | `tests/security/network-policy.test.sh` (Test 7)                | Verified Live         | `SCN-NETPOL-01` |
+| **Parameterized SQL Queries**           | Application Security | `src/db.js`, `index.js`, `src/db/init.sql`                             | `tests/unit/db.test.js`, `tests/security/sql-injection.test.sh` | Verified Live & Local | `SCN-SQLI-01`   |
+| **Decoupled Health Probing**            | Reliability / SRE    | `src/health.js`, `index.js`                                            | `tests/unit/health.test.js`, `demo/07-chaos-engineering.sh`     | Verified Live & Local | `SCN-PROBES-01` |
+| **ReplicaSet Self-Healing**             | Resilience           | `k8s/base/api-deployment.yaml`                                         | `demo/07-chaos-engineering.sh` (Chaos 1)                        | Verified Live         | `SCN-CHAOS-01`  |
+| **Horizontal Pod Autoscaling (HPA)**    | Elasticity           | `k8s/base/api-hpa.yaml`                                                | `demo/07-chaos-engineering.sh` (Chaos 2), k6 stress             | Verified Live         | `SCN-CHAOS-02`  |
+| **Golden Signals Telemetry**            | Observability        | `src/metrics.js`, `k8s/monitoring/`                                    | `tests/metrics.test.js`, `demo/08-show-dashboards.sh`           | Verified Live & Local | `SCN-OBS-01`    |
+| **PostgreSQL High Availability**        | Database HA          | `k8s/base/postgres-statefulset.yaml`                                   | N/A (Single replica demo)                                       | Illustrative Only     | N/A             |
+| **KMS Secret Encryption**               | Secret Governance    | `k8s/base/secrets.yaml`                                                | N/A (Kubernetes plain secret)                                   | Illustrative Only     | N/A             |
+
+---
+
+## 🧪 Testing Layers & Local Execution
+
+| Command                                 | Layer                     | Scope                                                                                                     | Cluster Required?                        |
+| :-------------------------------------- | :------------------------ | :-------------------------------------------------------------------------------------------------------- | :--------------------------------------- |
+| `npm test`                              | **Unit & Integration**    | Route shapes, security headers, parameterized query input validation, health checks, metrics registration | ❌ **No** (pure offline Node.js)         |
+| `npm run validate:catalog`              | **Contract Validation**   | Scenario catalog schema, uniqueness, and file path verification                                           | ❌ **No**                                |
+| `npm run lint`                          | **Static Analysis**       | ESLint with zero-warning threshold                                                                        | ❌ **No**                                |
+| `npm run format:check`                  | **Code Style**            | Prettier code style validation                                                                            | ❌ **No**                                |
+| `npm run test:cluster`                  | **Cluster Security**      | Container hardening, zero-trust network policies, live SQLi assertions                                    | ✅ **Yes** (gracefully skips if offline) |
+| `bash demo/04-run-security-tests.sh`    | **Orchestrated Security** | Runs container, network policy, and SQLi suites; exports Markdown & JSON reports                          | ✅ **Yes**                               |
+| `bash demo/05-run-performance-tests.sh` | **Performance / SLOs**    | Executes k6 smoke, load, and stress tests; records JSON summary                                           | ✅ **Yes** (or local API instance)       |
+
+For complete contributor workflow and local Docker/Checkov/Kube-Linter commands, see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+
+---
+
 ## 📋 Prerequisites
 
 Before running the demo or scripts, ensure your system meets the following requirements:

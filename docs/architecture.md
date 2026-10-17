@@ -223,3 +223,20 @@ The cluster employs **NIST SP 800-207 Zero-Trust Architecture** micro-segmentati
 3. **Horizontal Pod Autoscaling (HPA):**
    - Monitors target CPU utilization (`targetAverageUtilization: 70%`).
    - Scales replica count dynamically between **2** (baseline high availability) and **5** (peak surge capacity).
+
+---
+
+## 7. Scope, Boundaries & Verification Architecture
+
+### 7.1 Scope & Intended Usage
+
+This codebase is an educational reference implementation demonstrating how to architect and enforce DevSecOps, SRE, and Zero-Trust principles in Kubernetes. Workloads and policies are designed to run in local disposable sandbox clusters (KinD, Minikube).
+
+### 7.2 Implemented & Verified vs. Illustrative Controls
+
+- **Verified Runtime Controls:** Non-root UID 1001 execution, stripped Linux capabilities, immutable read-only filesystem, NIST SP 800-207 network policies (default-deny and explicit ingress/egress whitelisting), decoupled health probes, and parameterized SQL queries (`GET /api/records`).
+- **Illustrative Architectural Elements:** Single-replica PostgreSQL StatefulSet (no HA replication or WAL archiving), local Kubernetes Secrets (unencrypted at rest without KMS), and self-signed ingress TLS.
+
+### 7.3 Scenario Catalog & Test Contract
+
+All system scenarios and verification procedures are declared in [`docs/scenarios/catalog.json`](scenarios/catalog.json) and validated by `scripts/validate-catalog.js`. Local unit tests run offline without clusters, while cluster security tests are orchestrated by `demo/04-run-security-tests.sh` generating machine-readable JSON reports.
