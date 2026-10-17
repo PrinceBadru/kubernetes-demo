@@ -32,6 +32,7 @@ spec:
         app.kubernetes.io/part-of: devsecops-demo
         app.kubernetes.io/managed-by: kubectl
     spec:
+      automountServiceAccountToken: false
       # -----------------------------------------------------------------------
       # DevSecOps Principle: Non-Root Execution & Pod Security Standards (Restricted)
       # 1. runAsNonRoot: Mandatory enforcement ensuring postgres never runs as root.
@@ -88,6 +89,7 @@ spec:
           # -------------------------------------------------------------------
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 999
             runAsGroup: 999

@@ -16,8 +16,8 @@ metadata:
     app.kubernetes.io/managed-by: kubectl
 type: Opaque
 stringData:
-  admin-user: "admin"
-  admin-password: "DevSecOpsAdminSecure2026!"
+  admin-user: 'admin'
+  admin-password: 'DevSecOpsAdminSecure2026!'
 
 ---
 # =============================================================================
@@ -743,6 +743,7 @@ spec:
         app.kubernetes.io/part-of: devsecops-demo
         app.kubernetes.io/managed-by: kubectl
     spec:
+      automountServiceAccountToken: false
       # -----------------------------------------------------------------------
       # DevSecOps Principle: Pod Security Standards (Restricted Profile)
       # 1. runAsNonRoot: Enforces execution as unprivileged user.
@@ -784,15 +785,15 @@ spec:
                   name: grafana-admin-credentials
                   key: admin-password
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
-              value: "/var/lib/grafana/dashboards/api-dashboard.json"
+              value: '/var/lib/grafana/dashboards/api-dashboard.json'
             - name: GF_USERS_ALLOW_SIGN_UP
-              value: "false"
+              value: 'false'
             - name: GF_ANALYTICS_REPORTING_ENABLED
-              value: "false"
+              value: 'false'
             - name: GF_ANALYTICS_CHECK_FOR_UPDATES
-              value: "false"
+              value: 'false'
             - name: GF_PATHS_DATA
-              value: "/var/lib/grafana/data"
+              value: '/var/lib/grafana/data'
 
           # -------------------------------------------------------------------
           # DevSecOps Principle: Container-Level Least Privilege
@@ -800,6 +801,7 @@ spec:
           # -------------------------------------------------------------------
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 472
             runAsGroup: 472

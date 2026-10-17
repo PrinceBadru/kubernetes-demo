@@ -26,6 +26,7 @@ spec:
         app.kubernetes.io/part-of: devsecops-demo
         app.kubernetes.io/managed-by: kubectl
     spec:
+      automountServiceAccountToken: false
       # -----------------------------------------------------------------------
       # DevSecOps Principle: Pod Security Standards (Restricted) Compliance
       # 1. runAsNonRoot: Redis is strictly forbidden from running as UID 0 (root).
@@ -54,13 +55,13 @@ spec:
           #    ephemeral cache; avoids disk I/O vulnerabilities and persistence leaks.
           # -------------------------------------------------------------------
           command:
-            - "redis-server"
-            - "--maxmemory"
-            - "128mb"
-            - "--maxmemory-policy"
-            - "allkeys-lru"
-            - "--save"
-            - ""
+            - 'redis-server'
+            - '--maxmemory'
+            - '128mb'
+            - '--maxmemory-policy'
+            - 'allkeys-lru'
+            - '--save'
+            - ''
 
           ports:
             - containerPort: 6379
@@ -102,8 +103,8 @@ spec:
           readinessProbe:
             exec:
               command:
-                - "redis-cli"
-                - "ping"
+                - 'redis-cli'
+                - 'ping'
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 2
@@ -111,8 +112,8 @@ spec:
           livenessProbe:
             exec:
               command:
-                - "redis-cli"
-                - "ping"
+                - 'redis-cli'
+                - 'ping'
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 2
