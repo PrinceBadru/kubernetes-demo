@@ -35,20 +35,20 @@ export const options = {
 
   thresholds: {
     // SLO Target 1: Availability >= 99.9%
-    'slo_availability': ['rate>=0.999'],
+    slo_availability: ['rate>=0.999'],
 
     // SLO Target 2: Latency p99 < 500ms
-    'slo_latency_duration': ['p(99)<500'],
+    slo_latency_duration: ['p(99)<500'],
 
     // Standard HTTP metrics strictly mirroring real-world SLA commitments
-    'http_req_duration': ['p(99)<500', 'p(95)<300', 'avg<150'],
-    'http_req_failed': ['rate<0.001'], // Maximum 0.1% failures allowed
+    http_req_duration: ['p(99)<500', 'p(95)<300', 'avg<150'],
+    http_req_failed: ['rate<0.001'], // Maximum 0.1% failures allowed
   },
 };
 
 export default function () {
   const headers = {
-    'Accept': 'application/json',
+    Accept: 'application/json',
     'User-Agent': 'k6-slo-validator/1.0',
   };
 

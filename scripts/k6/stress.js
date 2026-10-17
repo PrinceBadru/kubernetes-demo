@@ -23,13 +23,13 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
 
 export const options = {
   stages: [
-    { duration: '1m', target: 50 },   // Ramp up to high load (50 VUs)
-    { duration: '2m', target: 50 },   // Hold 50 VUs: Baseline stress
-    { duration: '1m', target: 100 },  // Ramp to 100 VUs: Trigger HPA CPU/Memory scaling
-    { duration: '2m', target: 100 },  // Hold 100 VUs: Evaluate auto-scaled replica behavior
-    { duration: '1m', target: 150 },  // Ramp to 150 VUs: Extreme stress near maximum capacity
-    { duration: '2m', target: 150 },  // Hold 150 VUs: Monitor memory pressure and socket saturation
-    { duration: '1m', target: 0 },    // Ramp down to zero: Cooldown and HPA scale-in observation
+    { duration: '1m', target: 50 }, // Ramp up to high load (50 VUs)
+    { duration: '2m', target: 50 }, // Hold 50 VUs: Baseline stress
+    { duration: '1m', target: 100 }, // Ramp to 100 VUs: Trigger HPA CPU/Memory scaling
+    { duration: '2m', target: 100 }, // Hold 100 VUs: Evaluate auto-scaled replica behavior
+    { duration: '1m', target: 150 }, // Ramp to 150 VUs: Extreme stress near maximum capacity
+    { duration: '2m', target: 150 }, // Hold 150 VUs: Monitor memory pressure and socket saturation
+    { duration: '1m', target: 0 }, // Ramp down to zero: Cooldown and HPA scale-in observation
   ],
 
   thresholds: {
@@ -42,7 +42,7 @@ export const options = {
 
 export default function () {
   const headers = {
-    'Accept': 'application/json',
+    Accept: 'application/json',
     'User-Agent': 'k6-stress-test/1.0',
   };
 

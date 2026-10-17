@@ -17,36 +17,36 @@
 
 env:
   contexts:
-    - name: "DevSecOps Demo API"
+    - name: 'DevSecOps Demo API'
       urls:
-        - "http://localhost:3000"
+        - 'http://localhost:3000'
       includePaths:
-        - "http://localhost:3000/.*"
+        - 'http://localhost:3000/.*'
       excludePaths:
         # Exclude Prometheus metrics endpoint to avoid skewing telemetry & unnecessary noise
-        - "http://localhost:3000/metrics"
-        - "http://localhost:3000/favicon.ico"
-      
+        - 'http://localhost:3000/metrics'
+        - 'http://localhost:3000/favicon.ico'
+
       # Limit technology scope to optimize scan speed and reduce false positives
       technologies:
         include:
-          - "Db.PostgreSQL"
-          - "Language.JavaScript"
-          - "OS.Linux"
-          - "Server.NodeJS"
+          - 'Db.PostgreSQL'
+          - 'Language.JavaScript'
+          - 'OS.Linux'
+          - 'Server.NodeJS'
         exclude:
-          - "Db.Microsoft SQL Server"
-          - "Db.MySQL"
-          - "Db.Oracle"
-          - "Language.ASP"
-          - "Language.C"
-          - "Language.JSP_Servlet"
-          - "Language.PHP"
-          - "Language.Python"
-          - "Language.Ruby"
-          - "Server.Apache"
-          - "Server.IIS"
-          - "Server.Tomcat"
+          - 'Db.Microsoft SQL Server'
+          - 'Db.MySQL'
+          - 'Db.Oracle'
+          - 'Language.ASP'
+          - 'Language.C'
+          - 'Language.JSP_Servlet'
+          - 'Language.PHP'
+          - 'Language.Python'
+          - 'Language.Ruby'
+          - 'Server.Apache'
+          - 'Server.IIS'
+          - 'Server.Tomcat'
 
   parameters:
     failOnError: true
@@ -59,15 +59,15 @@ jobs:
   # Explores API paths and endpoints to discover routes and attack surfaces.
   # ----------------------------------------------------------------------------
   - type: spider
-    name: "Spider Crawl"
+    name: 'Spider Crawl'
     parameters:
-      context: "DevSecOps Demo API"
-      url: "http://localhost:3000"
+      context: 'DevSecOps Demo API'
+      url: 'http://localhost:3000'
       maxDuration: 2
       maxDepth: 5
       maxChildren: 10
       acceptCookies: true
-      handleParameters: "USE_ALL"
+      handleParameters: 'USE_ALL'
 
   # ----------------------------------------------------------------------------
   # Job 2: Passive Scan Wait
@@ -75,7 +75,7 @@ jobs:
   # during the spider crawl (e.g., missing CSP, HSTS, secure cookie flags).
   # ----------------------------------------------------------------------------
   - type: passiveScan-wait
-    name: "Passive Scan Wait"
+    name: 'Passive Scan Wait'
     parameters:
       maxDuration: 5
 
@@ -84,10 +84,10 @@ jobs:
   # Performs automated fuzzing targeting Injection, Traversal, and Auth bypass.
   # ----------------------------------------------------------------------------
   - type: activeScan
-    name: "Active Scan"
+    name: 'Active Scan'
     parameters:
-      context: "DevSecOps Demo API"
-      policy: "Default Policy"
+      context: 'DevSecOps Demo API'
+      policy: 'Default Policy'
       maxRuleDurationInMins: 5
       maxScanDurationInMins: 15
       addQueryParam: false
@@ -100,13 +100,13 @@ jobs:
   # Generates human-readable compliance and vulnerability audit report.
   # ----------------------------------------------------------------------------
   - type: report
-    name: "Generate HTML Security Report"
+    name: 'Generate HTML Security Report'
     parameters:
-      template: "traditional-html"
-      reportDir: "artifacts/security"
-      reportFile: "zap-report"
-      reportTitle: "DevSecOps Demo API - OWASP ZAP Security Audit Report"
-      reportDescription: "Automated DAST evaluation assessing containerized API resilience against OWASP Top 10 vulnerabilities."
+      template: 'traditional-html'
+      reportDir: 'artifacts/security'
+      reportFile: 'zap-report'
+      reportTitle: 'DevSecOps Demo API - OWASP ZAP Security Audit Report'
+      reportDescription: 'Automated DAST evaluation assessing containerized API resilience against OWASP Top 10 vulnerabilities.'
       displayReport: false
 
   # ----------------------------------------------------------------------------
@@ -114,10 +114,10 @@ jobs:
   # Generates machine-readable output for GitHub Advanced Security / DefectDojo.
   # ----------------------------------------------------------------------------
   - type: report
-    name: "Generate SARIF Security Report"
+    name: 'Generate SARIF Security Report'
     parameters:
-      template: "sarif-json"
-      reportDir: "artifacts/security"
-      reportFile: "zap-report-sarif"
-      reportTitle: "DevSecOps Demo API - SARIF Output"
+      template: 'sarif-json'
+      reportDir: 'artifacts/security'
+      reportFile: 'zap-report-sarif'
+      reportTitle: 'DevSecOps Demo API - SARIF Output'
       displayReport: false

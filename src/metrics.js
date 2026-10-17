@@ -1,6 +1,6 @@
 /**
  * @fileoverview Prometheus Metrics Instrumentation Module
- * 
+ *
  * DevSecOps Principles:
  * 1. Observability & SRE Best Practices:
  *    Exposes the Golden Signals (Latency, Traffic, Errors, Saturation) enabling
@@ -84,11 +84,11 @@ export const healthCheckStatus = new promClient.Gauge({
 
 /**
  * Express middleware to automatically track request rate, status, and duration metrics.
- * 
+ *
  * DevSecOps Rationale:
  * Automated telemetry collection guarantees that all inbound traffic is accounted for
  * without requiring individual route handlers to manually instrument their endpoints.
- * 
+ *
  * @param {import('express').Request} req - Express request
  * @param {import('express').Response} res - Express response
  * @param {import('express').NextFunction} next - Next middleware function
@@ -118,11 +118,11 @@ export const metricsMiddleware = (req, res, next) => {
 /**
  * Prometheus metrics scrape endpoint handler.
  * Exposes all registered metrics in standard Prometheus text format.
- * 
+ *
  * DevSecOps Rationale:
  * Exposing metrics on a standardized path (/metrics) enables Kubernetes-native
  * scraping via Prometheus Operator / PodMonitor / ServiceMonitor.
- * 
+ *
  * @param {import('express').Request} req - Express request
  * @param {import('express').Response} res - Express response
  */

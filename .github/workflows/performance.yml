@@ -19,7 +19,7 @@ name: Performance Testing Pipeline
 
 on:
   workflow_run:
-    workflows: ["Deployment Pipeline"]
+    workflows: ['Deployment Pipeline']
     types:
       - completed
   workflow_dispatch:

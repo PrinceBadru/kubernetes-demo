@@ -22,16 +22,16 @@ data:
   # ---------------------------------------------------------------------------
 
   # Application Runtime Environment
-  NODE_ENV: "production"
-  PORT: "3000"
+  NODE_ENV: 'production'
+  PORT: '3000'
 
   # PostgreSQL Database Configuration (Internal Cluster DNS)
   # Uses the Kubernetes headless/cluster service DNS name for service discovery.
-  PG_HOST: "postgres"
-  PG_PORT: "5432"
-  PG_USER: "app"
-  PG_DATABASE: "auditor"
+  PG_HOST: 'postgres'
+  PG_PORT: '5432'
+  PG_USER: 'app'
+  PG_DATABASE: 'auditor'
 
   # Redis Cache Configuration (Internal Cluster DNS)
-  REDIS_HOST: "redis"
-  REDIS_PORT: "6379"
+  REDIS_HOST: 'redis'
+  REDIS_PORT: '6379'

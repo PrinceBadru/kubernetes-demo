@@ -24,12 +24,12 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
 
 export const options = {
   stages: [
-    { duration: '1m', target: 5 },    // Baseline steady traffic (5 VUs for 1 minute)
+    { duration: '1m', target: 5 }, // Baseline steady traffic (5 VUs for 1 minute)
     { duration: '10s', target: 100 }, // Explosive instantaneous spike to 100 VUs
     { duration: '30s', target: 100 }, // Sustain spike load for 30 seconds
-    { duration: '10s', target: 5 },   // Sharp drop back to baseline (5 VUs)
-    { duration: '1m', target: 5 },    // Monitor system recovery and stabilization for 1 minute
-    { duration: '10s', target: 0 },   // Clean teardown
+    { duration: '10s', target: 5 }, // Sharp drop back to baseline (5 VUs)
+    { duration: '1m', target: 5 }, // Monitor system recovery and stabilization for 1 minute
+    { duration: '10s', target: 0 }, // Clean teardown
   ],
 
   thresholds: {
@@ -42,7 +42,7 @@ export const options = {
 
 export default function () {
   const headers = {
-    'Accept': 'application/json',
+    Accept: 'application/json',
     'User-Agent': 'k6-spike-test/1.0',
   };
 

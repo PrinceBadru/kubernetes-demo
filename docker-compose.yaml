@@ -40,7 +40,7 @@ services:
     # Network Security: Single entry point into the application stack.
     # Exposes port 3000 externally for client ingress while proxying requests internally.
     ports:
-      - "3000:3000"
+      - '3000:3000'
 
     # Dependency Gating: Enforces readiness sequencing before starting API processes.
     depends_on:
@@ -66,7 +66,8 @@ services:
 
     # Health Check: Validates liveness using Alpine native wget on lightweight /healthz
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
+      test:
+        ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/healthz']
       interval: 15s
       timeout: 5s
       retries: 3
@@ -76,19 +77,19 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.50"
+          cpus: '0.50'
           memory: 512M
         reservations:
-          cpus: "0.10"
+          cpus: '0.10'
           memory: 128M
 
     networks:
       - backend
 
     labels:
-      app.kubernetes.io/name: "devsecops-demo-api"
-      app.kubernetes.io/component: "api"
-      app.kubernetes.io/part-of: "devsecops-demo"
+      app.kubernetes.io/name: 'devsecops-demo-api'
+      app.kubernetes.io/component: 'api'
+      app.kubernetes.io/part-of: 'devsecops-demo'
 
   # ----------------------------------------------------------------------------
   # 2. PostgreSQL Service (Stateful Relational Persistence Tier)
@@ -112,7 +113,7 @@ services:
 
     # Health Check: Probes Postgres socket to ensure database acceptance of client queries
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d auditor"]
+      test: ['CMD-SHELL', 'pg_isready -U app -d auditor']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -122,19 +123,19 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.00"
+          cpus: '1.00'
           memory: 1G
         reservations:
-          cpus: "0.20"
+          cpus: '0.20'
           memory: 256M
 
     networks:
       - backend
 
     labels:
-      app.kubernetes.io/name: "postgres"
-      app.kubernetes.io/component: "database"
-      app.kubernetes.io/part-of: "devsecops-demo"
+      app.kubernetes.io/name: 'postgres'
+      app.kubernetes.io/component: 'database'
+      app.kubernetes.io/part-of: 'devsecops-demo'
 
   # ----------------------------------------------------------------------------
   # 3. Redis Service (In-Memory Caching & Session Tier)
@@ -149,11 +150,11 @@ services:
 
     # Memory Hardening: Constrains memory utilization and evicts least-recently-used keys
     # to prevent out-of-memory kernel termination (OOM kill).
-    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ['redis-server', '--maxmemory', '128mb', '--maxmemory-policy', 'allkeys-lru']
 
     # Health Check: Pings the Redis daemon to verify thread responsiveness
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -163,19 +164,19 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.50"
+          cpus: '0.50'
           memory: 256M
         reservations:
-          cpus: "0.05"
+          cpus: '0.05'
           memory: 64M
 
     networks:
       - backend
 
     labels:
-      app.kubernetes.io/name: "redis"
-      app.kubernetes.io/component: "cache"
-      app.kubernetes.io/part-of: "devsecops-demo"
+      app.kubernetes.io/name: 'redis'
+      app.kubernetes.io/component: 'cache'
+      app.kubernetes.io/part-of: 'devsecops-demo'
 
 # ------------------------------------------------------------------------------
 # Networks Definition
@@ -185,8 +186,8 @@ networks:
   backend:
     driver: bridge
     labels:
-      app.kubernetes.io/name: "devsecops-demo-network"
-      app.kubernetes.io/part-of: "devsecops-demo"
+      app.kubernetes.io/name: 'devsecops-demo-network'
+      app.kubernetes.io/part-of: 'devsecops-demo'
 
 # ------------------------------------------------------------------------------
 # Volumes Definition
@@ -195,5 +196,5 @@ volumes:
   # Dedicated named volume for stateful database storage
   postgres_data:
     labels:
-      app.kubernetes.io/name: "postgres-data"
-      app.kubernetes.io/part-of: "devsecops-demo"
+      app.kubernetes.io/name: 'postgres-data'
+      app.kubernetes.io/part-of: 'devsecops-demo'

@@ -57,6 +57,7 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
 ## 2. Component Responsibilities
 
 ### 2.1 Ingress Controller (`ingress-nginx`)
+
 - **Ingress Routing:** Evaluates HTTP `Host` headers (`devsecops-demo.local`) and path prefixes.
 - **Edge Security Controls:**
   - `nginx.ingress.kubernetes.io/limit-rps: "10"`: Enforces strict per-client IP rate limiting to mitigate Layer 7 volumetric Denial of Service (DoS) and brute-force attacks.
@@ -64,6 +65,7 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
   - `nginx.ingress.kubernetes.io/ssl-redirect: "true"`: Automatically redirects insecure HTTP traffic to HTTPS.
 
 ### 2.2 API Application Tier (`devsecops-demo-api`)
+
 - **Runtime:** Node.js 18 LTS running Express.js in ES Module mode (`"type": "module"`).
 - **Core Endpoints:**
   - `GET /`: Returns service metadata, runtime uptime, and pod hostname (`HOSTNAME`).
@@ -79,6 +81,7 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
   - Global exception masking preventing database error leaks or stack traces (CWE-200 defense).
 
 ### 2.3 Persistence Tier (`postgres`)
+
 - **Engine:** PostgreSQL 15-alpine.
 - **Workload Type:** Kubernetes `StatefulSet` with headless/ClusterIP Service `postgres`.
 - **Port:** TCP 5432.
@@ -88,6 +91,7 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
   - Ingress strictly restricted via NetworkPolicy to pods matching `app.kubernetes.io/name: api`. Direct access from any other pod or namespace is dropped.
 
 ### 2.4 Cache Tier (`redis`)
+
 - **Engine:** Redis 7-alpine.
 - **Workload Type:** Kubernetes `Deployment` with ClusterIP Service `redis`.
 - **Port:** TCP 6379.
@@ -101,19 +105,19 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
 
 The cluster employs **NIST SP 800-207 Zero-Trust Architecture** micro-segmentation. By default, all ingress and egress within the `devsecops-demo` namespace is denied (`default-deny-all`). Traffic flows are explicitly authorized based on fine-grained selectors:
 
-| Source | Destination | Protocol / Port | NetworkPolicy Rule | Expected Behavior |
-| :--- | :--- | :--- | :--- | :--- |
-| `ingress-nginx` namespace | `api` pod | TCP / 3000 | `allow-api-ingress` | **ALLOWED** (Web user ingress) |
-| `monitoring` namespace | `api` pod | TCP / 3000 | `allow-api-ingress` | **ALLOWED** (Prometheus scraping) |
-| `api` pod | `postgres` pod | TCP / 5432 | `allow-api-to-postgres` | **ALLOWED** (SQL queries) |
-| `api` pod | `redis` pod | TCP / 6379 | `allow-api-to-redis` | **ALLOWED** (Cache reads/writes) |
-| `api` pod | `kube-system` CoreDNS | UDP/TCP / 53 | `allow-api-dns` | **ALLOWED** (Internal DNS resolution) |
-| `postgres` pod | `kube-system` CoreDNS | UDP/TCP / 53 | `allow-postgres-dns` | **ALLOWED** (Internal DNS resolution) |
-| `redis` pod | `kube-system` CoreDNS | UDP/TCP / 53 | `allow-redis-dns` | **ALLOWED** (Internal DNS resolution) |
-| **Rogue Pod** | `postgres` pod | TCP / 5432 | *Default Deny* | **BLOCKED** (Lateral movement prevented) |
-| `redis` pod | `postgres` pod | TCP / 5432 | *Default Deny* | **BLOCKED** (Inter-tier pivot prevented) |
-| **External / Internet** | `redis` pod | TCP / 6379 | *Default Deny* | **BLOCKED** (Cache is private) |
-| `api` pod | Public Internet | ANY | *Default Deny* | **BLOCKED** (Data exfiltration & C2 prevented) |
+| Source                    | Destination           | Protocol / Port | NetworkPolicy Rule      | Expected Behavior                              |
+| :------------------------ | :-------------------- | :-------------- | :---------------------- | :--------------------------------------------- |
+| `ingress-nginx` namespace | `api` pod             | TCP / 3000      | `allow-api-ingress`     | **ALLOWED** (Web user ingress)                 |
+| `monitoring` namespace    | `api` pod             | TCP / 3000      | `allow-api-ingress`     | **ALLOWED** (Prometheus scraping)              |
+| `api` pod                 | `postgres` pod        | TCP / 5432      | `allow-api-to-postgres` | **ALLOWED** (SQL queries)                      |
+| `api` pod                 | `redis` pod           | TCP / 6379      | `allow-api-to-redis`    | **ALLOWED** (Cache reads/writes)               |
+| `api` pod                 | `kube-system` CoreDNS | UDP/TCP / 53    | `allow-api-dns`         | **ALLOWED** (Internal DNS resolution)          |
+| `postgres` pod            | `kube-system` CoreDNS | UDP/TCP / 53    | `allow-postgres-dns`    | **ALLOWED** (Internal DNS resolution)          |
+| `redis` pod               | `kube-system` CoreDNS | UDP/TCP / 53    | `allow-redis-dns`       | **ALLOWED** (Internal DNS resolution)          |
+| **Rogue Pod**             | `postgres` pod        | TCP / 5432      | _Default Deny_          | **BLOCKED** (Lateral movement prevented)       |
+| `redis` pod               | `postgres` pod        | TCP / 5432      | _Default Deny_          | **BLOCKED** (Inter-tier pivot prevented)       |
+| **External / Internet**   | `redis` pod           | TCP / 6379      | _Default Deny_          | **BLOCKED** (Cache is private)                 |
+| `api` pod                 | Public Internet       | ANY             | _Default Deny_          | **BLOCKED** (Data exfiltration & C2 prevented) |
 
 ---
 
@@ -167,6 +171,7 @@ The cluster employs **NIST SP 800-207 Zero-Trust Architecture** micro-segmentati
 ## 5. End-to-End Data Flows
 
 ### 5.1 Standard Read / Write Flow
+
 1. Client sends HTTP `GET /api/status` to `devsecops-demo.local`.
 2. NGINX Ingress validates rate limits and proxy body limits, then routes to ClusterIP service `api:80`.
 3. kube-proxy load balances request across healthy API pods.
@@ -175,6 +180,7 @@ The cluster employs **NIST SP 800-207 Zero-Trust Architecture** micro-segmentati
 6. Result is cached in Redis with TTL and returned to client as JSON.
 
 ### 5.2 Observability Scrape Flow
+
 1. Prometheus server (in `monitoring` namespace) queries the Kubernetes Endpoints API for pods matching `app.kubernetes.io/name: api`.
 2. Prometheus issues HTTP `GET /metrics` on TCP port 3000 every 5 seconds.
 3. NetworkPolicy `allow-api-ingress` permits ingress from `namespaceSelector: { kubernetes.io/metadata.name: monitoring }`.

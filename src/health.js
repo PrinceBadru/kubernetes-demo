@@ -1,6 +1,6 @@
 /**
  * @fileoverview Deep Health Check Module
- * 
+ *
  * DevSecOps Principles:
  * 1. Deep Dependency Health Probing vs Lightweight K8s Probes:
  *    Lightweight probes (`/healthz`, `/readyz`) avoid external dependency checks to
@@ -23,11 +23,11 @@ import { healthCheckStatus } from './metrics.js';
 
 /**
  * Performs a deep health inspection of all backing services.
- * 
+ *
  * DevSecOps Rationale:
  * Running dependency health checks concurrently prevents cumulative timeout latency
  * and accurately surfaces degraded subsystems before serving corrupt or stale data.
- * 
+ *
  * @returns {Promise<{
  *   status: 'ok' | 'degraded',
  *   timestamp: string,
@@ -40,10 +40,7 @@ import { healthCheckStatus } from './metrics.js';
  */
 export const deepHealthCheck = async () => {
   // Execute checks in parallel to minimize latency
-  const [pgResult, redisResult] = await Promise.all([
-    checkPostgres(),
-    checkRedis(),
-  ]);
+  const [pgResult, redisResult] = await Promise.all([checkPostgres(), checkRedis()]);
 
   // Update Prometheus gauges for downstream dependency health
   healthCheckStatus.set({ service: 'postgres' }, pgResult.ok ? 1 : 0);

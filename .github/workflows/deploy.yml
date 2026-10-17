@@ -19,7 +19,7 @@ name: Deployment Pipeline
 
 on:
   workflow_run:
-    workflows: ["Container Build & Scan"]
+    workflows: ['Container Build & Scan']
     types:
       - completed
   workflow_dispatch:

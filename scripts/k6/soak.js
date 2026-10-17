@@ -22,9 +22,9 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
 
 export const options = {
   stages: [
-    { duration: '30s', target: 10 },  // Warm-up ramp to 10 VUs
-    { duration: '5m', target: 10 },   // Sustained soak endurance run for 5 minutes
-    { duration: '30s', target: 0 },   // Ramp-down to zero
+    { duration: '30s', target: 10 }, // Warm-up ramp to 10 VUs
+    { duration: '5m', target: 10 }, // Sustained soak endurance run for 5 minutes
+    { duration: '30s', target: 0 }, // Ramp-down to zero
   ],
 
   thresholds: {
@@ -37,7 +37,7 @@ export const options = {
 
 export default function () {
   const headers = {
-    'Accept': 'application/json',
+    Accept: 'application/json',
     'User-Agent': 'k6-soak-test/1.0',
   };
 

@@ -18,22 +18,22 @@ metadata:
     # Rate limiting restricts client requests to 10 requests per second (rps).
     # This prevents brute-force attacks, API scraping, and volumetric layer 7 DoS.
     # -------------------------------------------------------------------------
-    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-rps: '10'
 
     # -------------------------------------------------------------------------
     # DevSecOps Principle: Payload Size Restriction & Memory Exhaustion Defense
     # Limits maximum client request body size to 1 Megabyte (1m).
     # Blocks malicious oversized uploads designed to exhaust API container memory.
     # -------------------------------------------------------------------------
-    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-body-size: '1m'
 
     # -------------------------------------------------------------------------
     # DevSecOps Principle: Enforced Encryption-in-Transit (TLS)
     # Automatically redirects unencrypted HTTP traffic (port 80) to HTTPS (port 443).
     # Ensures all user tokens, credentials, and sensitive payloads are encrypted in flight.
     # -------------------------------------------------------------------------
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/force-ssl-redirect: 'true'
 spec:
   ingressClassName: nginx
   # ---------------------------------------------------------------------------

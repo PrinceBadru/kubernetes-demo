@@ -1,6 +1,6 @@
 /**
  * @fileoverview Redis Cache Client & Health Check Module
- * 
+ *
  * DevSecOps Principles:
  * 1. Resilient Connection Handling:
  *    Uses exponential backoff retry strategy and replica failover awareness (reconnectOnError)
@@ -71,11 +71,11 @@ redis.on('error', (err) => {
 
 /**
  * Executes a Redis health probe (`PING`) with a strict 2-second timeout.
- * 
+ *
  * DevSecOps Rationale:
  * Enforces a bounded latency window so health checks fail fast if Redis is partitioned,
  * allowing Kubernetes services to route traffic only to fully operational pods.
- * 
+ *
  * @returns {Promise<{ ok: boolean, latencyMs: number, error?: string }>}
  */
 export const checkRedis = async () => {
@@ -90,10 +90,7 @@ export const checkRedis = async () => {
 
   try {
     redisCommandsTotal.inc({ command: 'ping' });
-    const reply = await Promise.race([
-      redis.ping(),
-      timeoutPromise,
-    ]);
+    const reply = await Promise.race([redis.ping(), timeoutPromise]);
 
     const latencyMs = Math.round(performance.now() - start);
     const ok = reply === 'PONG';

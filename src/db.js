@@ -1,6 +1,6 @@
 /**
  * @fileoverview PostgreSQL Database Connection Pool & Health Check Module
- * 
+ *
  * DevSecOps Principles:
  * 1. Connection Pooling & Resource Exhaustion Defense:
  *    Maintains a controlled pool (`pg.Pool`) of connections with explicit max limits,
@@ -81,11 +81,11 @@ pool.on('error', (err) => {
 
 /**
  * Executes a PostgreSQL health probe query (`SELECT 1`) with a strict 3-second timeout.
- * 
+ *
  * DevSecOps Rationale:
  * Guarantees that database latency spikes, locks, or network partitions do not block
  * API threads or cause Kubernetes readiness checks to cascade into full outages.
- * 
+ *
  * @returns {Promise<{ ok: boolean, latencyMs: number, error?: string }>}
  */
 export const checkPostgres = async () => {
@@ -99,10 +99,7 @@ export const checkPostgres = async () => {
   });
 
   try {
-    await Promise.race([
-      pool.query('SELECT 1'),
-      timeoutPromise,
-    ]);
+    await Promise.race([pool.query('SELECT 1'), timeoutPromise]);
 
     const latencyMs = Math.round(performance.now() - start);
     dbQueryDurationSeconds.observe(latencyMs / 1000);

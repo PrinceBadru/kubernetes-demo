@@ -8,9 +8,11 @@
 - **Audience:** Cloud Architects, Security Engineers, DevOps/Platform Practitioners, Software Developers
 
 ### Purpose & Vision
+
 The **DevSecOps Kubernetes Demo** serves as an enterprise-grade reference architecture illustrating how modern DevSecOps, Site Reliability Engineering (SRE), and Zero-Trust principles are implemented across the entire software development and deployment lifecycle in Kubernetes.
 
 Rather than treating security as a perimeter-only or post-deployment audit gate, this project demonstrates **Security as Code**, **Defense-in-Depth**, and **Shift-Left/Shift-Right verification** baked directly into:
+
 1. Container image builds (non-root execution, minimal attack surface, multi-stage builds).
 2. Declarative Kubernetes manifests (Pod Security Admission Restricted profile, resource quotas, dropped capabilities, read-only root filesystem).
 3. Zero-trust network segmentation (NIST SP 800-207 compliant default-deny network policies).
@@ -71,34 +73,34 @@ The system implements a hardened **3-tier cloud-native architecture**:
 
 ## 3. Technology Stack Reference
 
-| Layer / Concern | Technology | Version | Rationale |
-| :--- | :--- | :--- | :--- |
-| **Language Runtime** | Node.js (Alpine Base) | 18 LTS | Enterprise long-term support, asynchronous event-driven I/O, minimal attack surface |
-| **Framework** | Express.js | 5.x / 4.x | Minimalist HTTP routing with robust middleware pipeline (headers, rate limiting, metrics) |
-| **Database** | PostgreSQL | 15-alpine | ACID compliance, prepared statement parameterization, lightweight Alpine container |
-| **Cache Store** | Redis | 7-alpine | Sub-millisecond latency caching layer, non-root Alpine container footprint |
-| **Orchestration** | Kubernetes | v1.26+ | De-facto standard for containerized workloads, native self-healing, PSS, HPA, and NetworkPolicies |
-| **Local Cluster** | KinD (Kubernetes in Docker) | v0.20+ | Multi-node topology simulation, Ingress host-port bindings, lightweight developer experience |
-| **Ingress Controller** | Ingress-NGINX | Latest | Advanced annotation-based rate limiting, SSL redirection, and request size enforcement |
-| **Metrics & Telemetry**| Prometheus & Grafana | v2.45 / v10.0 | Industry standard SRE telemetry, native Kubernetes endpoint discovery |
-| **Load Testing** | k6 by Grafana Labs | v0.45+ | Scriptable performance testing evaluating SLOs and triggering autoscaling |
-| **Security Scanning** | OWASP ZAP & Custom Suites | Latest | Dynamic Application Security Testing (DAST) and CIS Benchmark compliance checking |
+| Layer / Concern         | Technology                  | Version       | Rationale                                                                                         |
+| :---------------------- | :-------------------------- | :------------ | :------------------------------------------------------------------------------------------------ |
+| **Language Runtime**    | Node.js (Alpine Base)       | 18 LTS        | Enterprise long-term support, asynchronous event-driven I/O, minimal attack surface               |
+| **Framework**           | Express.js                  | 5.x / 4.x     | Minimalist HTTP routing with robust middleware pipeline (headers, rate limiting, metrics)         |
+| **Database**            | PostgreSQL                  | 15-alpine     | ACID compliance, prepared statement parameterization, lightweight Alpine container                |
+| **Cache Store**         | Redis                       | 7-alpine      | Sub-millisecond latency caching layer, non-root Alpine container footprint                        |
+| **Orchestration**       | Kubernetes                  | v1.26+        | De-facto standard for containerized workloads, native self-healing, PSS, HPA, and NetworkPolicies |
+| **Local Cluster**       | KinD (Kubernetes in Docker) | v0.20+        | Multi-node topology simulation, Ingress host-port bindings, lightweight developer experience      |
+| **Ingress Controller**  | Ingress-NGINX               | Latest        | Advanced annotation-based rate limiting, SSL redirection, and request size enforcement            |
+| **Metrics & Telemetry** | Prometheus & Grafana        | v2.45 / v10.0 | Industry standard SRE telemetry, native Kubernetes endpoint discovery                             |
+| **Load Testing**        | k6 by Grafana Labs          | v0.45+        | Scriptable performance testing evaluating SLOs and triggering autoscaling                         |
+| **Security Scanning**   | OWASP ZAP & Custom Suites   | Latest        | Dynamic Application Security Testing (DAST) and CIS Benchmark compliance checking                 |
 
 ---
 
 ## 4. DevSecOps Principles Implemented
 
-| DevSecOps Principle | Implementation in Project | Primary Security Benefit |
-| :--- | :--- | :--- |
-| **Least Privilege (PoLP)** | Non-root container UID 1001, dedicated ServiceAccount with `automountServiceAccountToken: false` | Prevents container breakouts from inheriting host root or Kubernetes cluster-admin credentials. |
-| **Zero-Trust Microsegmentation** | Declarative NetworkPolicies with default-deny ingress and egress (NIST SP 800-207) | Blocks lateral movement across pods; isolates PostgreSQL and Redis from unauthorized workloads. |
-| **Immutable Infrastructure** | `readOnlyRootFilesystem: true` with ephemeral `/tmp` emptyDir volume mount | Prevents adversaries from modifying application binaries, downloading malware, or maintaining persistence. |
-| **Kernel Hardening** | `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`, `RuntimeDefault` seccomp | Eliminates Linux kernel capabilities (e.g. `CAP_NET_RAW`, `CAP_SYS_ADMIN`), thwarting privilege escalation exploits. |
-| **Pod Security Standards (PSS)** | Namespace labeled with `pod-security.kubernetes.io/enforce: restricted` | Kubernetes rejects any workload violating the strictest pod security standards at admission time. |
-| **Defense Against Injection** | Parameterized queries with prepared statements ($1, $2) and global error masking | Mitigates OWASP Top 10 A03:2021 Injection and prevents database schema leakage (CWE-200). |
-| **Denial of Service (DoS) Defense** | Ingress rate limiting (10 rps), payload limits (1MB body, 100kb JSON), resource requests/limits | Prevents noisy neighbors, memory exhaustion attacks, and volumetric Layer 7 request flooding. |
-| **SRE Health Probing** | Distinct `/healthz` (Liveness), `/readyz` (Readiness), and `/api/health` (Deep Check) | Prevents cascading pod crashes during temporary backing database or cache blips. |
-| **Elastic Auto-Healing** | Horizontal Pod Autoscaler (HPA 2-5 replicas), ReplicaSets with Pod Anti-Affinity | Automatically absorbs traffic spikes and guarantees high availability across distinct worker nodes. |
+| DevSecOps Principle                 | Implementation in Project                                                                        | Primary Security Benefit                                                                                             |
+| :---------------------------------- | :----------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------- |
+| **Least Privilege (PoLP)**          | Non-root container UID 1001, dedicated ServiceAccount with `automountServiceAccountToken: false` | Prevents container breakouts from inheriting host root or Kubernetes cluster-admin credentials.                      |
+| **Zero-Trust Microsegmentation**    | Declarative NetworkPolicies with default-deny ingress and egress (NIST SP 800-207)               | Blocks lateral movement across pods; isolates PostgreSQL and Redis from unauthorized workloads.                      |
+| **Immutable Infrastructure**        | `readOnlyRootFilesystem: true` with ephemeral `/tmp` emptyDir volume mount                       | Prevents adversaries from modifying application binaries, downloading malware, or maintaining persistence.           |
+| **Kernel Hardening**                | `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`, `RuntimeDefault` seccomp        | Eliminates Linux kernel capabilities (e.g. `CAP_NET_RAW`, `CAP_SYS_ADMIN`), thwarting privilege escalation exploits. |
+| **Pod Security Standards (PSS)**    | Namespace labeled with `pod-security.kubernetes.io/enforce: restricted`                          | Kubernetes rejects any workload violating the strictest pod security standards at admission time.                    |
+| **Defense Against Injection**       | Parameterized queries with prepared statements ($1, $2) and global error masking                 | Mitigates OWASP Top 10 A03:2021 Injection and prevents database schema leakage (CWE-200).                            |
+| **Denial of Service (DoS) Defense** | Ingress rate limiting (10 rps), payload limits (1MB body, 100kb JSON), resource requests/limits  | Prevents noisy neighbors, memory exhaustion attacks, and volumetric Layer 7 request flooding.                        |
+| **SRE Health Probing**              | Distinct `/healthz` (Liveness), `/readyz` (Readiness), and `/api/health` (Deep Check)            | Prevents cascading pod crashes during temporary backing database or cache blips.                                     |
+| **Elastic Auto-Healing**            | Horizontal Pod Autoscaler (HPA 2-5 replicas), ReplicaSets with Pod Anti-Affinity                 | Automatically absorbs traffic spikes and guarantees high availability across distinct worker nodes.                  |
 
 ---
 

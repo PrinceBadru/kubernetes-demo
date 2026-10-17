@@ -28,7 +28,7 @@ metadata:
 rules:
   # DevSecOps Principle: Granular Resource Access
   # Read-only access to core resources for Prometheus kubernetes_sd_configs
-  - apiGroups: [""]
+  - apiGroups: ['']
     resources:
       - nodes
       - nodes/metrics
@@ -36,17 +36,17 @@ rules:
       - services
       - endpoints
       - pods
-    verbs: ["get", "list", "watch"]
+    verbs: ['get', 'list', 'watch']
   # Access to workload controllers for metadata enrichment
-  - apiGroups: ["apps"]
+  - apiGroups: ['apps']
     resources:
       - deployments
       - daemonsets
       - statefulsets
-    verbs: ["get", "list", "watch"]
+    verbs: ['get', 'list', 'watch']
   # Permission to query raw node/kubelet metric endpoints
-  - nonResourceURLs: ["/metrics"]
-    verbs: ["get"]
+  - nonResourceURLs: ['/metrics']
+    verbs: ['get']
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -122,10 +122,10 @@ spec:
           image: prom/prometheus:v2.48.0
           imagePullPolicy: IfNotPresent
           args:
-            - "--config.file=/etc/prometheus/prometheus.yml"
-            - "--storage.tsdb.path=/prometheus"
-            - "--storage.tsdb.retention.time=24h"
-            - "--web.enable-lifecycle"
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--storage.tsdb.retention.time=24h'
+            - '--web.enable-lifecycle'
           ports:
             - name: web
               containerPort: 9090

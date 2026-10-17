@@ -157,17 +157,17 @@ kubernetes-demo/
 
 ## 🛡️ DevSecOps Principles Matrix
 
-| DevSecOps Principle | Implementation in Project | Threat Mitigated |
-| :--- | :--- | :--- |
-| **Principle of Least Privilege (PoLP)** | Non-root container UID `1001`, dedicated `api-service-account` with `automountServiceAccountToken: false` | Container escape privilege escalation & cluster control-plane takeover. |
-| **Zero-Trust Microsegmentation** | Declarative `NetworkPolicy` with `default-deny-all` for Ingress & Egress (NIST SP 800-207) | Lateral movement between compromised pods; blocks direct external access to databases. |
-| **Immutable Infrastructure** | `readOnlyRootFilesystem: true` with ephemeral `/tmp` emptyDir volume mount | Runtime malware downloads, binary patching, and unauthorized backdoor persistence. |
-| **Kernel Hardening** | `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`, `seccompProfile: RuntimeDefault` | Linux kernel exploits, setuid privilege elevation, and raw network socket abuse. |
-| **Admission Governance** | Namespace labeled with `pod-security.kubernetes.io/enforce: restricted` | Ingestion of non-hardened, privileged containers onto cluster nodes. |
-| **Injection Defense** | Parameterized SQL queries ($1, $2 placeholders) and centralized error masking | OWASP Top 10 A03:2021 Injection and database schema information leaks (CWE-200). |
-| **Denial of Service (DoS) Defense** | Ingress rate limiting (10 rps), payload limits (1MB), resource requests/limits | Volumetric Layer 7 flooding, noisy neighbors, and memory exhaustion crashes. |
-| **SRE Probing Architecture** | Decoupled `/healthz` (Liveness), `/readyz` (Readiness), and `/api/health` (Deep Check) | Cascading pod crash loops during transient database or cache hiccups. |
-| **Elastic Self-Healing** | Horizontal Pod Autoscaler (2-5 replicas), ReplicaSets with Pod Anti-Affinity | Service unavailability during traffic spikes or single-node hardware outages. |
+| DevSecOps Principle                     | Implementation in Project                                                                                 | Threat Mitigated                                                                       |
+| :-------------------------------------- | :-------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------- |
+| **Principle of Least Privilege (PoLP)** | Non-root container UID `1001`, dedicated `api-service-account` with `automountServiceAccountToken: false` | Container escape privilege escalation & cluster control-plane takeover.                |
+| **Zero-Trust Microsegmentation**        | Declarative `NetworkPolicy` with `default-deny-all` for Ingress & Egress (NIST SP 800-207)                | Lateral movement between compromised pods; blocks direct external access to databases. |
+| **Immutable Infrastructure**            | `readOnlyRootFilesystem: true` with ephemeral `/tmp` emptyDir volume mount                                | Runtime malware downloads, binary patching, and unauthorized backdoor persistence.     |
+| **Kernel Hardening**                    | `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]`, `seccompProfile: RuntimeDefault`         | Linux kernel exploits, setuid privilege elevation, and raw network socket abuse.       |
+| **Admission Governance**                | Namespace labeled with `pod-security.kubernetes.io/enforce: restricted`                                   | Ingestion of non-hardened, privileged containers onto cluster nodes.                   |
+| **Injection Defense**                   | Parameterized SQL queries ($1, $2 placeholders) and centralized error masking                             | OWASP Top 10 A03:2021 Injection and database schema information leaks (CWE-200).       |
+| **Denial of Service (DoS) Defense**     | Ingress rate limiting (10 rps), payload limits (1MB), resource requests/limits                            | Volumetric Layer 7 flooding, noisy neighbors, and memory exhaustion crashes.           |
+| **SRE Probing Architecture**            | Decoupled `/healthz` (Liveness), `/readyz` (Readiness), and `/api/health` (Deep Check)                    | Cascading pod crash loops during transient database or cache hiccups.                  |
+| **Elastic Self-Healing**                | Horizontal Pod Autoscaler (2-5 replicas), ReplicaSets with Pod Anti-Affinity                              | Service unavailability during traffic spikes or single-node hardware outages.          |
 
 ---
 

@@ -31,8 +31,8 @@ export const errorRate = new Rate('error_rate');
 export const options = {
   stages: [
     { duration: '30s', target: 10 }, // Ramp-up to baseline traffic
-    { duration: '1m', target: 25 },  // Sustained load triggering HPA evaluation
-    { duration: '30s', target: 0 },  // Graceful ramp-down
+    { duration: '1m', target: 25 }, // Sustained load triggering HPA evaluation
+    { duration: '30s', target: 0 }, // Graceful ramp-down
   ],
   thresholds: {
     // DevSecOps SLO Gate: Error budget enforcement (< 1% failures)

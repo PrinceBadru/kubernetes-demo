@@ -8,14 +8,14 @@ This guide provides end-to-end instructions for orchestrating, presenting, and v
 
 Ensure your workstation satisfies these requirements prior to running the demo scripts:
 
-| Requirement | Supported Versions | Verification Command | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Operating System** | Linux, macOS, or Windows (WSL2 / Git Bash) | `uname -a` | Bash scripting environment |
-| **Docker** | Engine 20.10+ / Desktop 4.0+ | `docker info` | Container image builds & local Kind nodes |
-| **kubectl** | v1.26+ | `kubectl version --client` | Kubernetes cluster management CLI |
-| **KinD** (or Minikube) | KinD v0.20+ / Minikube v1.31+ | `kind version` | Multi-node local Kubernetes cluster |
-| **curl** | 7.68+ | `curl --version` | HTTP API probing and attack simulation |
-| **k6** (Optional) | v0.45+ | `k6 version` | Performance load testing (Docker runner used as fallback) |
+| Requirement            | Supported Versions                         | Verification Command       | Purpose                                                   |
+| :--------------------- | :----------------------------------------- | :------------------------- | :-------------------------------------------------------- |
+| **Operating System**   | Linux, macOS, or Windows (WSL2 / Git Bash) | `uname -a`                 | Bash scripting environment                                |
+| **Docker**             | Engine 20.10+ / Desktop 4.0+               | `docker info`              | Container image builds & local Kind nodes                 |
+| **kubectl**            | v1.26+                                     | `kubectl version --client` | Kubernetes cluster management CLI                         |
+| **KinD** (or Minikube) | KinD v0.20+ / Minikube v1.31+              | `kind version`             | Multi-node local Kubernetes cluster                       |
+| **curl**               | 7.68+                                      | `curl --version`           | HTTP API probing and attack simulation                    |
+| **k6** (Optional)      | v0.45+                                     | `k6 version`               | Performance load testing (Docker runner used as fallback) |
 
 ---
 
@@ -45,6 +45,7 @@ bash demo/08-show-dashboards.sh
 ## 🎬 Step-by-Step Walkthrough Guide
 
 ### Step 1: `demo/01-setup-cluster.sh` — Local Cluster Setup
+
 - **What it does:**
   - Validates prerequisites (`docker`, `kubectl`, `kind`/`minikube`).
   - Creates a 3-node KinD cluster (1 control plane + 2 worker nodes) with port forwards for host ports 80 and 443.
@@ -57,13 +58,14 @@ bash demo/08-show-dashboards.sh
   kubectl top nodes
   ```
 - **Key DevSecOps Talking Points:**
-  - *Infrastructure as Code (IaC):* Declarative, repeatable cluster topologies.
-  - *Multi-Node Realism:* A multi-node topology is essential to demonstrate `podAntiAffinity`, ensuring replicas are never co-located on a single physical host.
-  - *Dynamic Capacity:* `metrics-server` enables native Kubernetes resource telemetry for the Horizontal Pod Autoscaler (HPA).
+  - _Infrastructure as Code (IaC):_ Declarative, repeatable cluster topologies.
+  - _Multi-Node Realism:_ A multi-node topology is essential to demonstrate `podAntiAffinity`, ensuring replicas are never co-located on a single physical host.
+  - _Dynamic Capacity:_ `metrics-server` enables native Kubernetes resource telemetry for the Horizontal Pod Autoscaler (HPA).
 
 ---
 
 ### Step 2: `demo/02-deploy-full-stack.sh` — Full Stack Deployment
+
 - **What it does:**
   - Builds the production image `devsecops-demo-api:latest` locally and sideloads it into the cluster nodes without exposing it to public registries.
   - Applies the namespace with **Pod Security Admission (PSA) `restricted` profile**.
@@ -79,13 +81,14 @@ bash demo/08-show-dashboards.sh
   curl -H "Host: devsecops-demo.local" http://localhost/api/health
   ```
 - **Key DevSecOps Talking Points:**
-  - *Defense-in-Depth:* Multiple layers of security are applied before the first container starts.
-  - *Zero-Downtime Rollouts:* `RollingUpdate` with `maxUnavailable: 0` ensures service continuity during redeployments.
-  - *Secret Isolation:* Decoupling application configuration from sensitive database credentials prevents accidental credential leakage in Git repositories.
+  - _Defense-in-Depth:_ Multiple layers of security are applied before the first container starts.
+  - _Zero-Downtime Rollouts:_ `RollingUpdate` with `maxUnavailable: 0` ensures service continuity during redeployments.
+  - _Secret Isolation:_ Decoupling application configuration from sensitive database credentials prevents accidental credential leakage in Git repositories.
 
 ---
 
 ### Step 3: `demo/03-verify-network-policies.sh` — Zero-Trust Network Verification
+
 - **What it does:**
   - Tests 5 distinct network paths to prove NIST SP 800-207 Zero-Trust Micro-segmentation:
     1. `API -> PostgreSQL:5432` (**ALLOWED**)
@@ -97,12 +100,13 @@ bash demo/08-show-dashboards.sh
   - The live connection timeouts when unauthorized pods attempt to reach PostgreSQL or Redis.
   - The clean summary table demonstrating that default-deny is active.
 - **Key DevSecOps Talking Points:**
-  - *Default Deny:* Standard Kubernetes allows flat, uninhibited inter-pod traffic. With zero-trust network policies, every connection must be explicitly permitted.
-  - *Lateral Movement Prevention:* If a public-facing container or Redis cache is compromised, attackers cannot reach the transactional PostgreSQL database.
+  - _Default Deny:_ Standard Kubernetes allows flat, uninhibited inter-pod traffic. With zero-trust network policies, every connection must be explicitly permitted.
+  - _Lateral Movement Prevention:_ If a public-facing container or Redis cache is compromised, attackers cannot reach the transactional PostgreSQL database.
 
 ---
 
 ### Step 4: `demo/04-run-security-tests.sh` — Security Test Suites
+
 - **What it does:**
   - Executes automated shell test suites against the running environment:
     - `tests/security/container-security.test.sh`: Verifies non-root user UID 1001, read-only root filesystem, dropped capabilities, and token isolation.
@@ -114,12 +118,13 @@ bash demo/08-show-dashboards.sh
   - The automated test execution passing in terminal.
   - The generated audit artifact `artifacts/security/security-summary.md`.
 - **Key DevSecOps Talking Points:**
-  - *Automated Quality Gates:* Security policies must be tested in CI/CD pipelines just like unit and integration tests.
-  - *Compliance Alignment:* Tests explicitly map back to CIS Kubernetes Benchmarks and OWASP ASVS v4.0.
+  - _Automated Quality Gates:_ Security policies must be tested in CI/CD pipelines just like unit and integration tests.
+  - _Compliance Alignment:_ Tests explicitly map back to CIS Kubernetes Benchmarks and OWASP ASVS v4.0.
 
 ---
 
 ### Step 5: `demo/05-run-performance-tests.sh` — Performance Testing with k6
+
 - **What it does:**
   - Runs three progressive performance test stages:
     1. Smoke test (`scripts/k6/smoke.js`): 1 VU for 30s.
@@ -130,12 +135,13 @@ bash demo/08-show-dashboards.sh
   - k6 latency distributions: p(95) < 300ms under nominal load.
   - The Horizontal Pod Autoscaler reacting to CPU spikes.
 - **Key DevSecOps Talking Points:**
-  - *Resilience Engineering:* Verifies non-functional requirements (NFRs) before production deployment.
-  - *SRE Golden Signals:* Continuous measurement of latency, traffic, errors, and saturation.
+  - _Resilience Engineering:_ Verifies non-functional requirements (NFRs) before production deployment.
+  - _SRE Golden Signals:_ Continuous measurement of latency, traffic, errors, and saturation.
 
 ---
 
 ### Step 6: `demo/06-simulate-attack.sh` — Live Attack Simulation
+
 - **What it does:**
   - Simulates 5 real-world attack vectors in real time:
     1. **SQL Injection:** Issues raw SQL queries (`id=1' OR '1'='1`) to verify input sanitization.
@@ -147,12 +153,13 @@ bash demo/08-show-dashboards.sh
   - Real-time `Read-only file system` and `Operation not permitted` errors.
   - Every attack being decisively rejected by Kubernetes kernel and network primitives.
 - **Key DevSecOps Talking Points:**
-  - *Immutable Infrastructure:* Attackers cannot install tools (`curl`, `nmap`) or drop backdoors into containers with read-only root filesystems.
-  - *Least Privilege:* Dropping all Linux capabilities (`capabilities: drop: [ALL]`) strips the container of dangerous kernel attack surfaces.
+  - _Immutable Infrastructure:_ Attackers cannot install tools (`curl`, `nmap`) or drop backdoors into containers with read-only root filesystems.
+  - _Least Privilege:_ Dropping all Linux capabilities (`capabilities: drop: [ALL]`) strips the container of dangerous kernel attack surfaces.
 
 ---
 
 ### Step 7: `demo/07-chaos-engineering.sh` — Chaos & Auto-Healing
+
 - **What it does:**
   - Scenario 1: Abruptly deletes an active API pod while continuously firing HTTP requests. Proves zero-downtime rolling health via ReplicaSet and peer pod.
   - Scenario 2: Launches concurrent traffic workers, driving CPU utilization past 70% and triggering HPA scale-out from 2 up to 5 replicas.
@@ -161,12 +168,13 @@ bash demo/08-show-dashboards.sh
   - The instant creation of replacement pods by Kubernetes ReplicaSet controllers.
   - The HPA status transitioning from 2 to 3+ replicas.
 - **Key DevSecOps Talking Points:**
-  - *Decoupled Probing:* Separating shallow liveness (`/healthz`) from deep dependency health (`/api/health`) avoids cluster-wide cascading restart loops when a database or cache blips.
-  - *Self-Healing:* Declarative controllers automatically restore system health without human intervention.
+  - _Decoupled Probing:_ Separating shallow liveness (`/healthz`) from deep dependency health (`/api/health`) avoids cluster-wide cascading restart loops when a database or cache blips.
+  - _Self-Healing:_ Declarative controllers automatically restore system health without human intervention.
 
 ---
 
 ### Step 8: `demo/08-show-dashboards.sh` — Monitoring Dashboards
+
 - **What it does:**
   - Establishes persistent background port-forwarding tunnels:
     - **Grafana:** `http://localhost:3001` (admin / admin)
@@ -182,14 +190,14 @@ bash demo/08-show-dashboards.sh
 
 ## 🛠️ Troubleshooting & Common Issues
 
-| Issue / Error | Likely Cause | Solution |
-| :--- | :--- | :--- |
-| `Cannot connect to the Docker daemon` | Docker Desktop / Engine is stopped | Start Docker Desktop or run `sudo systemctl start docker`. |
-| `failed to create cluster: node(s) already exist` | Stale KinD cluster remains from earlier run | Run `kind delete cluster --name devsecops-cluster` and retry. |
-| `Port 80/443 already in use` | Another local web server (IIS, Apache, NGINX) is running | Stop the conflicting local process or change host ports in `demo/01-setup-cluster.sh`. |
-| `Metrics server rollout wait timed out` | Self-signed kubelet certificates | Ensure `--kubelet-insecure-tls` flag was patched into `metrics-server` deployment. |
-| `ImagePullBackOff` on `devsecops-demo-api` | Local image was not sideloaded into KinD | Run `kind load docker-image devsecops-demo-api:latest --name devsecops-cluster`. |
-| `k6: command not found` | k6 is not installed locally | `demo/05-run-performance-tests.sh` automatically falls back to Docker. Ensure Docker is running. |
+| Issue / Error                                     | Likely Cause                                             | Solution                                                                                         |
+| :------------------------------------------------ | :------------------------------------------------------- | :----------------------------------------------------------------------------------------------- |
+| `Cannot connect to the Docker daemon`             | Docker Desktop / Engine is stopped                       | Start Docker Desktop or run `sudo systemctl start docker`.                                       |
+| `failed to create cluster: node(s) already exist` | Stale KinD cluster remains from earlier run              | Run `kind delete cluster --name devsecops-cluster` and retry.                                    |
+| `Port 80/443 already in use`                      | Another local web server (IIS, Apache, NGINX) is running | Stop the conflicting local process or change host ports in `demo/01-setup-cluster.sh`.           |
+| `Metrics server rollout wait timed out`           | Self-signed kubelet certificates                         | Ensure `--kubelet-insecure-tls` flag was patched into `metrics-server` deployment.               |
+| `ImagePullBackOff` on `devsecops-demo-api`        | Local image was not sideloaded into KinD                 | Run `kind load docker-image devsecops-demo-api:latest --name devsecops-cluster`.                 |
+| `k6: command not found`                           | k6 is not installed locally                              | `demo/05-run-performance-tests.sh` automatically falls back to Docker. Ensure Docker is running. |
 
 ---
 
