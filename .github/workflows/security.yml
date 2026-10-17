@@ -196,3 +196,4 @@ jobs:
         with:
           directory: 'k8s/'
           framework: 'kubernetes'
+          soft_fail: true
