@@ -46,7 +46,7 @@ export default function () {
       try {
         const body = JSON.parse(r.body);
         return body.service === 'devsecops-demo-api';
-      } catch (e) {
+      } catch (_e) {
         return false;
       }
     },
@@ -77,7 +77,7 @@ export default function () {
       try {
         const body = JSON.parse(r.body);
         return typeof body.nodeVersion === 'string';
-      } catch (e) {
+      } catch (_e) {
         return false;
       }
     },

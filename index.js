@@ -1,6 +1,6 @@
 /**
  * @fileoverview Main Application Entrypoint for devsecops-demo-api
- * 
+ *
  * DevSecOps Principles:
  * 1. Secure Defaults & Defense in Depth:
  *    - Strips `X-Powered-By` header to prevent technology fingerprinting.
@@ -47,7 +47,7 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const durationMs = Math.round(performance.now() - start);
     console.info(
-      `[${new Date().toISOString()}] [HTTP] ${req.method} ${req.originalUrl || req.url} ${res.statusCode} ${durationMs}ms`
+      `[${new Date().toISOString()}] [HTTP] ${req.method} ${req.originalUrl || req.url} ${res.statusCode} ${durationMs}ms`,
     );
   });
   next();
@@ -130,11 +130,11 @@ app.get('/api/status', (req, res) => {
 
 /**
  * Global error-handling middleware.
- * 
+ *
  * DevSecOps Principle:
  * Prevents Information Disclosure (CWE-200) by suppressing stack traces in production.
  */
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   console.error('[AppError]', err);
   const isProduction = process.env.NODE_ENV === 'production';
   const statusCode = err.status || err.statusCode || 500;
@@ -150,13 +150,13 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 
 const server = app.listen(PORT, () => {
   console.info(
-    `[Server] devsecops-demo-api listening on port ${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`
+    `[Server] devsecops-demo-api listening on port ${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`,
   );
 });
 
 /**
  * Graceful shutdown coordinator.
- * 
+ *
  * DevSecOps Principle:
  * Ensures zero-downtime rolling updates in Kubernetes:
  * 1. Stops accepting new inbound HTTP requests.
