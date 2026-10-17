@@ -1,0 +1,302 @@
+version: '1.0.0'
+description: 'Declarative, version-controlled catalog of all DevSecOps demonstration scenarios and automated security test contracts.'
+schema: 'docs/scenarios/schema.json'
+
+scenarios:
+  - id: 'SCN-DEPLOY-01'
+    title: 'Baseline Multi-Tier Workload Promotion'
+    category: 'workload-management'
+    learning_goal: 'Demonstrate declarative Kubernetes delivery of API, PostgreSQL StatefulSet, and Redis with Pod Security Admission.'
+    control_type: 'declarative_policy'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['api', 'postgres', 'redis']
+    execution:
+      mode: 'live'
+      script: 'demo/02-deploy-full-stack.sh'
+    expected_state:
+      before: 'Namespace exists with restricted Pod Security Admission profile enabled.'
+      during: 'Workload manifests and ConfigMaps/Secrets are declared via kubectl apply.'
+      after: 'All pods transition to Running and readyReplicas matches desired replicas.'
+    evidence:
+      log_pattern: 'deployment.apps/api condition met'
+      command: 'kubectl get pods -n devsecops-demo -l app.kubernetes.io/part-of=devsecops-demo'
+    source_paths:
+      manifests:
+        - 'k8s/namespace.yaml'
+        - 'k8s/base/api-deployment.yaml'
+        - 'k8s/base/postgres-statefulset.yaml'
+        - 'k8s/base/redis-deployment.yaml'
+      scripts:
+        - 'demo/02-deploy-full-stack.sh'
+    reversibility:
+      cleanup_action: 'delete_namespace'
+      target: 'devsecops-demo'
+
+  - id: 'SCN-NETPOL-01'
+    title: 'Zero-Trust Microsegmentation & Default-Deny Isolation'
+    category: 'network-security'
+    learning_goal: 'Verify that intra-namespace network microsegmentation drops lateral pod-to-pod pivot attempts.'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['postgres', 'api']
+    execution:
+      mode: 'live'
+      script: 'tests/security/network-policy.test.sh'
+    expected_state:
+      before: 'API pod communicates with postgres:5432 and redis:6379.'
+      during: 'Attacker pod spins up with unauthorized labels and attempts TCP connect to postgres:5432.'
+      after: 'NetworkPolicy drops all packets; probe fails with connection timeout.'
+    evidence:
+      log_pattern: 'Connection timed out'
+      command: 'kubectl exec -n devsecops-demo netpol-probe -- nc -z -w 3 postgres 5432'
+    source_paths:
+      manifests:
+        - 'k8s/security/network-policies.yaml'
+      scripts:
+        - 'tests/security/network-policy.test.sh'
+        - 'demo/03-verify-network-policies.sh'
+    reversibility:
+      cleanup_action: 'delete_pod'
+      target: 'netpol-unauthorized-probe-*'
+
+  - id: 'SCN-PSS-01'
+    title: 'Pod Security Standards (Restricted) & Non-Root Execution'
+    category: 'container-hardening'
+    learning_goal: 'Enforce execution under unprivileged non-root UIDs (1001) and drop all Linux kernel capabilities.'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['api']
+    execution:
+      mode: 'live'
+      script: 'tests/security/container-security.test.sh'
+    expected_state:
+      before: 'API container is running.'
+      during: 'Inspection queries container effective UID and Linux capabilities.'
+      after: 'Container UID is 1001 (non-zero) and capability set is completely empty.'
+    evidence:
+      log_pattern: 'runAsUser: 1001'
+      command: 'kubectl exec -n devsecops-demo deploy/api -- id -u'
+    source_paths:
+      manifests:
+        - 'k8s/security/pod-security.yaml'
+        - 'k8s/base/api-deployment.yaml'
+      scripts:
+        - 'tests/security/container-security.test.sh'
+    reversibility:
+      cleanup_action: 'none'
+      target: 'read-only-inspection'
+
+  - id: 'SCN-FS-01'
+    title: 'Immutable Read-Only Root Filesystem & Backdoor Prevention'
+    category: 'container-hardening'
+    learning_goal: 'Block malware drop and file persistence attempts by making the container root filesystem immutable.'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['api']
+    execution:
+      mode: 'live'
+      script: 'demo/06-simulate-attack.sh'
+    expected_state:
+      before: 'API container is running with readOnlyRootFilesystem enabled.'
+      during: 'Adversary command attempts writing to /app/evil.js or modifying source code.'
+      after: 'Kernel returns Read-only file system error (EPERM/EROFS).'
+    evidence:
+      log_pattern: 'Read-only file system'
+      command: 'kubectl exec -n devsecops-demo deploy/api -- touch /app/evil.js'
+    source_paths:
+      manifests:
+        - 'k8s/base/api-deployment.yaml'
+        - 'Dockerfile'
+      scripts:
+        - 'demo/06-simulate-attack.sh'
+    reversibility:
+      cleanup_action: 'none'
+      target: 'prevented-write'
+
+  - id: 'SCN-RBAC-01'
+    title: 'Least-Privilege Scoped RBAC & Token Isolation'
+    category: 'access-control'
+    learning_goal: 'Prevent credential theft and privilege escalation by eliminating automounted API tokens and scoping Role bindings.'
+    control_type: 'declarative_policy'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['api']
+    execution:
+      mode: 'live'
+      script: 'tests/security/container-security.test.sh'
+    expected_state:
+      before: 'Pod starts with automountServiceAccountToken: false.'
+      during: 'Attacker searches filesystem for /var/run/secrets/kubernetes.io/serviceaccount/token.'
+      after: 'Token file path does not exist; in-pod credential extraction is impossible.'
+    evidence:
+      log_pattern: 'No such file or directory'
+      command: 'kubectl exec -n devsecops-demo deploy/api -- ls /var/run/secrets/kubernetes.io/serviceaccount'
+    source_paths:
+      manifests:
+        - 'k8s/security/service-account.yaml'
+        - 'k8s/security/rbac.yaml'
+        - 'k8s/base/api-deployment.yaml'
+      scripts:
+        - 'tests/security/container-security.test.sh'
+    reversibility:
+      cleanup_action: 'none'
+      target: 'read-only-inspection'
+
+  - id: 'SCN-SQLI-01'
+    title: 'Parameterized Query Defense & Input Validation (/api/records)'
+    category: 'application-security'
+    learning_goal: 'Prove that prepared statements ($1, $2) neutralize tautology, stacked DDL, and UNION payloads.'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: false
+      namespace: 'devsecops-demo'
+      workloads: ['api', 'postgres']
+    execution:
+      mode: 'live'
+      script: 'tests/security/sql-injection.test.sh'
+    expected_state:
+      before: 'Table audit_logs contains seeded audit records.'
+      during: 'Injected payloads are transmitted via GET /api/records?search=... and id=...'
+      after: 'Non-numeric IDs return HTTP 400; SQL payloads match 0 rows without executing DDL or leaking errors.'
+    evidence:
+      metric: 'http_requests_total'
+      log_pattern: 'Parameterized query treated payload as literal text'
+      command: "curl -s http://localhost:3000/api/records?search='%20OR%20'1'='1"
+    source_paths:
+      manifests:
+        - 'k8s/base/postgres-statefulset.yaml'
+        - 'src/db/init.sql'
+      scripts:
+        - 'tests/security/sql-injection.test.sh'
+        - 'src/db.js'
+        - 'index.js'
+    reversibility:
+      cleanup_action: 'none'
+      target: 'idempotent-query'
+
+  - id: 'SCN-PROBES-01'
+    title: 'Decoupled Health Probing & Fault Domain Isolation'
+    category: 'reliability'
+    learning_goal: 'Verify that shallow liveness (/healthz) prevents infinite pod crash loops when backing dependencies degrade.'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['api', 'redis']
+    execution:
+      mode: 'live'
+      script: 'demo/07-chaos-engineering.sh'
+    expected_state:
+      before: 'Both /healthz and /api/health return HTTP 200.'
+      during: 'Redis is scaled to 0 replicas.'
+      after: 'Liveness /healthz remains HTTP 200 (pod alive); deep check /api/health flags HTTP 503 degraded.'
+    evidence:
+      metric: "health_check_status{service='redis'}"
+      log_pattern: 'HTTP 200 (Liveness) & HTTP 503 (Deep Health)'
+      command: "curl -s -w '%{http_code}' http://localhost:3000/healthz"
+    source_paths:
+      manifests:
+        - 'k8s/base/api-deployment.yaml'
+      scripts:
+        - 'demo/07-chaos-engineering.sh'
+        - 'src/health.js'
+    reversibility:
+      cleanup_action: 'scale_deployment'
+      target: 'deployment/redis'
+      replica_count: 1
+
+  - id: 'SCN-CHAOS-01'
+    title: 'Pod Failure & Self-Healing via ReplicaSet'
+    category: 'resilience'
+    learning_goal: 'Validate zero-downtime client request handling when an active pod instance is forcefully deleted.'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['api']
+    execution:
+      mode: 'live'
+      script: 'demo/07-chaos-engineering.sh'
+    expected_state:
+      before: 'Deployment api maintains 2 active replicas.'
+      during: 'Active pod is deleted via kubectl delete pod.'
+      after: 'ReplicaSet immediately spins up a replacement pod; traffic continues without dropping requests.'
+    evidence:
+      log_pattern: 'ReplicaSet replacement pod scheduled'
+      command: 'kubectl get pods -n devsecops-demo -l app.kubernetes.io/name=api'
+    source_paths:
+      manifests:
+        - 'k8s/base/api-deployment.yaml'
+      scripts:
+        - 'demo/07-chaos-engineering.sh'
+    reversibility:
+      cleanup_action: 'none'
+      target: 'declarative-reconciliation'
+
+  - id: 'SCN-CHAOS-02'
+    title: 'Horizontal Pod Autoscaling (HPA) under Traffic Surge'
+    category: 'resilience'
+    learning_goal: 'Observe automated elasticity when concurrent traffic exceeds target CPU threshold (70%).'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: true
+      namespace: 'devsecops-demo'
+      workloads: ['api']
+    execution:
+      mode: 'live'
+      script: 'demo/07-chaos-engineering.sh'
+    expected_state:
+      before: 'HPA tracks 2 replicas with <10% CPU utilization.'
+      during: 'Load generation processes send concurrent HTTP requests to /api/health.'
+      after: 'HPA triggers scale-out up to 5 replicas within policy bounds.'
+    evidence:
+      metric: 'container_cpu_usage_seconds_total'
+      command: 'kubectl get hpa api -n devsecops-demo'
+    source_paths:
+      manifests:
+        - 'k8s/base/api-hpa.yaml'
+      scripts:
+        - 'demo/07-chaos-engineering.sh'
+    reversibility:
+      cleanup_action: 'terminate_workers'
+      target: 'load-processes'
+
+  - id: 'SCN-OBS-01'
+    title: 'Prometheus Telemetry & Golden Signals Dashboards'
+    category: 'observability'
+    learning_goal: 'Monitor Latency, Traffic, Errors, and Saturation via standardized metrics endpoints.'
+    control_type: 'live_enforcement'
+    prerequisites:
+      cluster: true
+      namespace: 'monitoring'
+      workloads: ['prometheus', 'grafana']
+    execution:
+      mode: 'live'
+      script: 'demo/08-show-dashboards.sh'
+    expected_state:
+      before: 'Prometheus scrapes /metrics from api pods every 15s.'
+      during: 'Workload receives traffic.'
+      after: 'Grafana dashboard renders Golden Signals with live refresh.'
+    evidence:
+      metric: 'http_request_duration_seconds_bucket'
+      command: 'curl -s http://localhost:3000/metrics'
+    source_paths:
+      manifests:
+        - 'k8s/monitoring/prometheus-deployment.yaml'
+        - 'k8s/monitoring/grafana-deployment.yaml'
+        - 'k8s/monitoring/grafana-dashboard.json'
+      scripts:
+        - 'demo/08-show-dashboards.sh'
+        - 'src/metrics.js'
+    reversibility:
+      cleanup_action: 'stop_port_forward'
+      target: 'port-forward-processes'

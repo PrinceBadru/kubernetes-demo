@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScenarioCatalogSchema",
+  "description": "Validation schema for DevSecOps demonstration scenarios and automated control contracts",
+  "type": "object",
+  "required": ["version", "description", "scenarios"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "category",
+          "learning_goal",
+          "control_type",
+          "prerequisites",
+          "execution",
+          "expected_state",
+          "evidence",
+          "source_paths",
+          "reversibility"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^SCN-[A-Z0-9]+-\\d{2}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 5
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "workload-management",
+              "network-security",
+              "container-hardening",
+              "access-control",
+              "application-security",
+              "reliability",
+              "resilience",
+              "observability"
+            ]
+          },
+          "learning_goal": {
+            "type": "string"
+          },
+          "control_type": {
+            "type": "string"
+          },
+          "prerequisites": {
+            "type": "object",
+            "required": ["cluster", "namespace"],
+            "properties": {
+              "cluster": { "type": "boolean" },
+              "namespace": { "type": "string" },
+              "workloads": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          },
+          "execution": {
+            "type": "object",
+            "required": ["mode", "script"],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["live", "simulated", "declarative"]
+              },
+              "script": { "type": "string" }
+            }
+          },
+          "expected_state": {
+            "type": "object",
+            "required": ["before", "after"],
+            "properties": {
+              "before": { "type": "string" },
+              "during": { "type": "string" },
+              "after": { "type": "string" }
+            }
+          },
+          "evidence": {
+            "type": "object"
+          },
+          "source_paths": {
+            "type": "object",
+            "properties": {
+              "manifests": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "scripts": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          },
+          "reversibility": {
+            "type": "object",
+            "required": ["cleanup_action", "target"],
+            "properties": {
+              "cleanup_action": { "type": "string" },
+              "target": { "type": "string" },
+              "replica_count": { "type": "integer" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
