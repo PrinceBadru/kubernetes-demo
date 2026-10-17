@@ -117,7 +117,88 @@ export const checkPostgres = async () => {
   }
 };
 
+/**
+ * Queries audit log records using strictly parameterized prepared statements.
+ *
+ * DevSecOps Principle (OWASP A03:2021 / CWE-89):
+ * Prepared statements with positional placeholder variables ($1, $2) guarantee that
+ * untrusted client inputs are treated purely as literal data values, making SQL injection
+ * impossible regardless of payload content.
+ *
+ * @param {Object} options
+ * @param {number} [options.id] - Optional record ID
+ * @param {string} [options.search] - Optional action substring to search
+ * @param {number} [options.limit=10] - Result limit (bounded between 1 and 50)
+ * @returns {Promise<Array<Object>>}
+ */
+export const queryRecords = async ({ id, search, limit = 10 } = {}) => {
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+
+  if (id !== undefined && id !== null && id !== '') {
+    const numericId = Number(id);
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      const err = new Error('Invalid record ID: must be a positive integer');
+      err.status = 400;
+      throw err;
+    }
+    const result = await pool.query(
+      'SELECT id, action, actor, details, created_at FROM audit_logs WHERE id = $1 LIMIT 1',
+      [numericId],
+    );
+    return result.rows;
+  }
+
+  if (search) {
+    const trimmedSearch = String(search).slice(0, 100);
+    const result = await pool.query(
+      'SELECT id, action, actor, details, created_at FROM audit_logs WHERE action ILIKE $1 OR details ILIKE $1 ORDER BY id ASC LIMIT $2',
+      [`%${trimmedSearch}%`, safeLimit],
+    );
+    return result.rows;
+  }
+
+  const result = await pool.query(
+    'SELECT id, action, actor, details, created_at FROM audit_logs ORDER BY id ASC LIMIT $1',
+    [safeLimit],
+  );
+  return result.rows;
+};
+
+/**
+ * Automatically creates the audit_logs table and seeds deterministic demo data.
+ */
+export const initSchema = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
+        action VARCHAR(64) NOT NULL,
+        actor VARCHAR(64) NOT NULL,
+        details TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      INSERT INTO audit_logs (action, actor, details)
+      SELECT 'USER_LOGIN', 'admin@demo.local', 'Successful authentication from trusted internal CIDR'
+      WHERE NOT EXISTS (SELECT 1 FROM audit_logs WHERE action = 'USER_LOGIN');
+      INSERT INTO audit_logs (action, actor, details)
+      SELECT 'KEY_ROTATION', 'system', 'Automated service account token rotation completed'
+      WHERE NOT EXISTS (SELECT 1 FROM audit_logs WHERE action = 'KEY_ROTATION');
+      INSERT INTO audit_logs (action, actor, details)
+      SELECT 'DEPLOYMENT', 'ci-runner', 'Version 1.0.0 deployed to devsecops-demo namespace'
+      WHERE NOT EXISTS (SELECT 1 FROM audit_logs WHERE action = 'DEPLOYMENT');
+      INSERT INTO audit_logs (action, actor, details)
+      SELECT 'POLICY_AUDIT', 'security-scanner', 'Zero-trust network policies and Pod Security Admission validated'
+      WHERE NOT EXISTS (SELECT 1 FROM audit_logs WHERE action = 'POLICY_AUDIT');
+    `);
+    console.info('[DB] Schema and seed data initialized successfully');
+  } catch (err) {
+    console.warn('[DB] Schema initialization deferred or unavailable:', err.message);
+  }
+};
+
 export default {
   pool,
   checkPostgres,
+  queryRecords,
+  initSchema,
 };

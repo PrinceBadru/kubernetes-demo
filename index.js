@@ -21,7 +21,7 @@
 
 import 'dotenv/config';
 import express from 'express';
-import { pool } from './src/db.js';
+import { pool, queryRecords, initSchema } from './src/db.js';
 import { redis } from './src/cache.js';
 import { deepHealthCheck } from './src/health.js';
 import { metricsMiddleware, metricsEndpoint } from './src/metrics.js';
@@ -94,6 +94,53 @@ app.get('/api/health', async (req, res) => {
 });
 
 /**
+ * Audit log query endpoint with parameterized query protection.
+ *
+ * DevSecOps Principle (OWASP A03:2021 / CWE-89):
+ * Accepts validated 'id' (integer) or 'search' (string) query parameters.
+ * Uses parameterized prepared statements exclusively.
+ * Returns HTTP 200 with matching records, or HTTP 400 for invalid inputs.
+ */
+app.get('/api/records', async (req, res, next) => {
+  try {
+    const { id, search, limit } = req.query;
+
+    // Validate ID if supplied
+    if (id !== undefined && id !== '') {
+      const parsedId = Number(id);
+      if (!Number.isInteger(parsedId) || parsedId <= 0) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Parameter "id" must be a positive integer',
+        });
+      }
+    }
+
+    // Validate search string length
+    if (search !== undefined && typeof search === 'string' && search.length > 100) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Parameter "search" exceeds maximum length of 100 characters',
+      });
+    }
+
+    const records = await queryRecords({ id, search, limit });
+    return res.status(200).json({
+      count: records.length,
+      records,
+    });
+  } catch (error) {
+    if (error.status === 400) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: error.message,
+      });
+    }
+    return next(error);
+  }
+});
+
+/**
  * Kubernetes Liveness Probe endpoint.
  * Fast, non-blocking check verifying the process is alive and event loop is responsive.
  */
@@ -148,11 +195,16 @@ app.use((err, req, res, _next) => {
 // Configure listening port from environment variable with fallback to 3000
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-const server = app.listen(PORT, () => {
-  console.info(
-    `[Server] devsecops-demo-api listening on port ${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`,
-  );
-});
+export let server = null;
+
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(PORT, async () => {
+    console.info(
+      `[Server] devsecops-demo-api listening on port ${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`,
+    );
+    await initSchema();
+  });
+}
 
 /**
  * Graceful shutdown coordinator.

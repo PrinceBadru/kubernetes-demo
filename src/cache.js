@@ -25,14 +25,22 @@ const connectionOptions = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379', 10),
   password: process.env.REDIS_PASSWORD || undefined,
-  maxRetriesPerRequest: 3,
+  lazyConnect: true,
+  enableOfflineQueue: false,
+  maxRetriesPerRequest: 1,
   enableReadyCheck: true,
   retryStrategy: (times) => {
+    if (process.env.NODE_ENV === 'test') {
+      return null;
+    }
     // Exponential backoff capped at 3000ms to allow recovery without storming the server
     const delay = Math.min(times * 150, 3000);
     return delay;
   },
   reconnectOnError: (err) => {
+    if (process.env.NODE_ENV === 'test') {
+      return false;
+    }
     // Reconnect on failover or readonly error during Sentinel/Cluster switchovers
     if (err.message.includes('READONLY')) {
       return true;
@@ -46,6 +54,8 @@ const connectionOptions = {
  */
 export const redis = redisUrl
   ? new Redis(redisUrl, {
+      lazyConnect: isTest,
+      enableOfflineQueue: !isTest,
       maxRetriesPerRequest: connectionOptions.maxRetriesPerRequest,
       retryStrategy: connectionOptions.retryStrategy,
     })

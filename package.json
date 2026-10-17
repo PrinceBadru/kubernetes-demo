@@ -10,7 +10,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test"
+    "test": "node --test tests/**/*.test.js",
+    "test:unit": "node --test tests/unit/*.test.js tests/metrics.test.js",
+    "test:cluster": "bash scripts/test-cluster.sh",
+    "validate:catalog": "node scripts/validate-catalog.js"
   },
   "repository": {
     "type": "git",
