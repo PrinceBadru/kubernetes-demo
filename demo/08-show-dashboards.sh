@@ -30,6 +30,12 @@ COLOR_CYAN="\033[1;36m"
 COLOR_MAGENTA="\033[1;35m"
 BOLD="\033[1m"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/lib/preflight.sh" ]]; then
+  # shellcheck source=demo/lib/preflight.sh
+  source "${SCRIPT_DIR}/lib/preflight.sh"
+fi
+
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 APP_NAMESPACE="${NAMESPACE:-devsecops-demo}"
 
@@ -38,6 +44,10 @@ echo "======================================================================"
 echo " 📊 DevSecOps Demo: Step 8 - Observability & Telemetry Gateway"
 echo "======================================================================"
 echo -e "${COLOR_RESET}"
+
+if type run_standard_preflight &>/dev/null; then
+  run_standard_preflight "${APP_NAMESPACE}"
+fi
 
 PIDS=()
 

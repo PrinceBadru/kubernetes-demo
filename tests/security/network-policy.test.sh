@@ -72,7 +72,7 @@ cleanup() {
   log_info "Cleaning up ephemeral test resources..."
   kubectl delete pod "${UNAUTH_POD_NAME}" -n "${NAMESPACE}" --ignore-not-found=true --grace-period=0 --force >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 echo -e "${COLOR_CYAN}=================================================================${COLOR_RESET}"
 echo -e "${COLOR_CYAN} Starting Zero-Trust Network Policy Verification Tests${COLOR_RESET}"

@@ -25,13 +25,18 @@
 #   - SRE / Chaos Engineering: Proactive failure injection builds operational confidence.
 #   - Decoupled Probing: Separation of shallow liveness (process alive) from deep readiness.
 #   - Elastic Self-Healing: Declarative reconciliation replaces failed instances automatically.
+#   - Safety & Reversibility: Preflight gates, confirmation barriers, and automatic
+#     state restoration traps guarantee idempotent, safe execution.
 # ==============================================================================
 
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# Formatting and UI Helpers
-# ------------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/lib/preflight.sh" ]]; then
+  # shellcheck source=demo/lib/preflight.sh
+  source "${SCRIPT_DIR}/lib/preflight.sh"
+fi
+
 COLOR_RESET="\033[0m"
 COLOR_GREEN="\033[1;32m"
 COLOR_RED="\033[1;31m"
@@ -65,12 +70,50 @@ API_URL="${API_URL:-http://localhost:3000}"
 echo -e "${COLOR_CYAN}${BOLD}"
 echo "======================================================================"
 echo " 💥 DevSecOps Demo: Step 7 - Chaos Engineering & Self-Healing"
-echo " Target Namespace: ${NAMESPACE}"
 echo "======================================================================"
 echo -e "${COLOR_RESET}"
 
+# Execute preflight environment check
+if type run_standard_preflight &>/dev/null; then
+  run_standard_preflight "${NAMESPACE}"
+  confirm_destructive_action "Inject chaos (pod termination, traffic spike, Redis shutdown)" "$@"
+fi
+
+# Track background load worker PIDs and baseline replica counts for clean restoration
+LOAD_PIDS=()
+ORIGINAL_REDIS_REPLICAS=$(kubectl get deployment redis -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)
+if [[ -z "${ORIGINAL_REDIS_REPLICAS}" || "${ORIGINAL_REDIS_REPLICAS}" -lt 1 ]]; then
+  ORIGINAL_REDIS_REPLICAS=1
+fi
+
+cleanup_chaos() {
+  local exit_code=$?
+  # Terminate any lingering background load generation workers
+  if [[ ${#LOAD_PIDS[@]} -gt 0 ]]; then
+    echo -e "\n${COLOR_YELLOW}[CLEANUP] Terminating background load generator processes...${COLOR_RESET}"
+    for pid in "${LOAD_PIDS[@]}"; do
+      kill "${pid}" 2>/dev/null || true
+    done
+  fi
+
+  # Restore Redis replicas to baseline count if altered
+  local current_redis_replicas
+  current_redis_replicas=$(kubectl get deployment redis -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")
+  if [[ -n "${current_redis_replicas}" && "${current_redis_replicas}" -ne "${ORIGINAL_REDIS_REPLICAS}" ]]; then
+    echo -e "${COLOR_YELLOW}[CLEANUP] Restoring Redis deployment to ${ORIGINAL_REDIS_REPLICAS} replica(s)...${COLOR_RESET}"
+    kubectl scale deployment redis -n "${NAMESPACE}" --replicas="${ORIGINAL_REDIS_REPLICAS}" >/dev/null 2>&1 || true
+  fi
+
+  if [[ $exit_code -ne 0 ]]; then
+    echo -e "${COLOR_YELLOW}[CLEANUP] Reversibility cleanup completed following error/interruption.${COLOR_RESET}"
+  fi
+  exit $exit_code
+}
+
+trap cleanup_chaos EXIT INT TERM
+
 # Show baseline pod status
-echo -e "${COLOR_CYAN}Current Pod Inventory:${COLOR_RESET}"
+echo -e "\n${COLOR_CYAN}Current Pod Inventory:${COLOR_RESET}"
 kubectl get pods -n "${NAMESPACE}" -o wide
 echo ""
 
@@ -79,37 +122,45 @@ echo ""
 # ------------------------------------------------------------------------------
 log_chaos "1/3" "Pod Failure & Self-Healing via ReplicaSet"
 
-TARGET_POD=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[0].metadata.name}')
-echo -e "Target Pod Selected for Termination: ${BOLD}${TARGET_POD}${COLOR_RESET}"
+TARGET_POD=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [[ -z "${TARGET_POD}" ]]; then
+  TARGET_POD=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+fi
 
-log_info "Initiating sudden pod deletion..."
-kubectl delete pod "${TARGET_POD}" -n "${NAMESPACE}" --grace-period=0 --force >/dev/null 2>&1 &
-DELETE_PID=$!
+if [[ -z "${TARGET_POD}" ]]; then
+  log_warn "No API pod found to terminate in namespace ${NAMESPACE}. Skipping Chaos 1."
+else
+  echo -e "Target Pod Selected for Termination: ${BOLD}${TARGET_POD}${COLOR_RESET}"
 
-# Probe service while deletion occurs to verify zero-downtime rolling availability
-log_info "Probing API endpoint during pod failure..."
-SUCCESSFUL_PROBES=0
-TOTAL_PROBES=5
+  log_info "Initiating sudden pod deletion..."
+  kubectl delete pod "${TARGET_POD}" -n "${NAMESPACE}" --grace-period=0 --force >/dev/null 2>&1 &
+  DELETE_PID=$!
 
-for i in $(seq 1 $TOTAL_PROBES); do
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/healthz" 2>/dev/null || echo "000")
-  if [[ "${HTTP_CODE}" == "200" ]]; then
-    SUCCESSFUL_PROBES=$((SUCCESSFUL_PROBES + 1))
-    echo -e "  Probe $i: HTTP ${COLOR_GREEN}${HTTP_CODE}${COLOR_RESET} (Served by healthy peer replica)"
-  else
-    echo -e "  Probe $i: HTTP ${COLOR_RED}${HTTP_CODE}${COLOR_RESET}"
-  fi
-  sleep 0.5
-done
+  # Probe service while deletion occurs to verify zero-downtime rolling availability
+  log_info "Probing API endpoint during pod failure..."
+  SUCCESSFUL_PROBES=0
+  TOTAL_PROBES=5
 
-wait "${DELETE_PID}" 2>/dev/null || true
+  for i in $(seq 1 $TOTAL_PROBES); do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/healthz" 2>/dev/null || echo "000")
+    if [[ "${HTTP_CODE}" == "200" ]]; then
+      SUCCESSFUL_PROBES=$((SUCCESSFUL_PROBES + 1))
+      echo -e "  Probe $i: HTTP ${COLOR_GREEN}${HTTP_CODE}${COLOR_RESET} (Served by healthy peer replica)"
+    else
+      echo -e "  Probe $i: HTTP ${COLOR_RED}${HTTP_CODE}${COLOR_RESET}"
+    fi
+    sleep 0.5
+  done
 
-log_info "Waiting for ReplicaSet to reconcile replacement pod..."
-kubectl rollout status deployment/api -n "${NAMESPACE}" --timeout=60s
+  wait "${DELETE_PID}" 2>/dev/null || true
 
-REPLACEMENT_PODS=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[*].metadata.name}')
-log_success "ReplicaSet self-healed! Current active replicas: ${REPLACEMENT_PODS}"
-log_success "Zero-downtime preserved: ${SUCCESSFUL_PROBES}/${TOTAL_PROBES} probes succeeded during pod death."
+  log_info "Waiting for ReplicaSet to reconcile replacement pod..."
+  kubectl rollout status deployment/api -n "${NAMESPACE}" --timeout=60s
+
+  REPLACEMENT_PODS=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+  log_success "ReplicaSet self-healed! Current active replicas: ${REPLACEMENT_PODS}"
+  log_success "Zero-downtime preserved: ${SUCCESSFUL_PROBES}/${TOTAL_PROBES} probes succeeded during pod death."
+fi
 
 # ------------------------------------------------------------------------------
 # Chaos 2: Synthetic Load Spike to Trigger Horizontal Pod Autoscaler (HPA)
@@ -117,7 +168,7 @@ log_success "Zero-downtime preserved: ${SUCCESSFUL_PROBES}/${TOTAL_PROBES} probe
 log_chaos "2/3" "High-Load Spike & Dynamic Horizontal Pod Autoscaling (HPA)"
 
 log_info "Baseline HPA State:"
-kubectl get hpa -n "${NAMESPACE}"
+kubectl get hpa -n "${NAMESPACE}" 2>/dev/null || log_warn "HPA not configured or Metrics Server not active."
 
 log_info "Generating concurrent load burst against API to trigger autoscaler..."
 
@@ -138,8 +189,8 @@ echo -e "Monitoring HPA metrics and replica count for 25 seconds..."
 
 for interval in {1..5}; do
   sleep 5
-  CURRENT_REPLICAS=$(kubectl get deployment api -n "${NAMESPACE}" -o jsonpath='{.status.replicas}')
-  READY_REPLICAS=$(kubectl get deployment api -n "${NAMESPACE}" -o jsonpath='{.status.readyReplicas}')
+  CURRENT_REPLICAS=$(kubectl get deployment api -n "${NAMESPACE}" -o jsonpath='{.status.replicas}' 2>/dev/null || echo "?")
+  READY_REPLICAS=$(kubectl get deployment api -n "${NAMESPACE}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "?")
   echo -e "  [+${interval}s] Deployment Replicas: ${BOLD}${CURRENT_REPLICAS}${COLOR_RESET} (Ready: ${READY_REPLICAS})"
   kubectl get hpa api -n "${NAMESPACE}" --no-headers 2>/dev/null || true
 done
@@ -148,8 +199,9 @@ done
 for pid in "${LOAD_PIDS[@]}"; do
   kill "${pid}" 2>/dev/null || true
 done
+LOAD_PIDS=()
 
-log_success "Elastic scaling pipeline evaluated successfully. HPA operates within [2-5] replica limits."
+log_success "Elastic scaling pipeline evaluated successfully. HPA operates within configured replica limits."
 
 # ------------------------------------------------------------------------------
 # Chaos 3: Dependency Degradation (Decoupled Health vs Liveness Probes)
@@ -176,8 +228,8 @@ log_info "Probing Deep Dependency Health (/api/health):"
 HEALTH_RESPONSE=$(curl -s "${API_URL}/api/health" 2>/dev/null || echo '{"status":"offline"}')
 echo -e "  Health Response: ${COLOR_YELLOW}${HEALTH_RESPONSE}${COLOR_RESET}"
 
-log_info "Restoring Redis cache tier (scaling back to 1 replica)..."
-kubectl scale deployment redis -n "${NAMESPACE}" --replicas=1
+log_info "Restoring Redis cache tier (scaling back to ${ORIGINAL_REDIS_REPLICAS} replica(s))..."
+kubectl scale deployment redis -n "${NAMESPACE}" --replicas="${ORIGINAL_REDIS_REPLICAS}"
 kubectl rollout status deployment/redis -n "${NAMESPACE}" --timeout=60s
 
 log_info "Re-verifying Deep Health Check post-recovery..."

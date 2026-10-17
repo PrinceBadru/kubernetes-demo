@@ -50,16 +50,25 @@ log_fail() {
   echo -e "${COLOR_RED}[FAIL]${COLOR_RESET} $1"
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/lib/preflight.sh" ]]; then
+  # shellcheck source=demo/lib/preflight.sh
+  source "${SCRIPT_DIR}/lib/preflight.sh"
+fi
+
 NAMESPACE="${NAMESPACE:-devsecops-demo}"
 TIMEOUT_SEC=4
 
 echo -e "${COLOR_CYAN}${BOLD}"
 echo "======================================================================"
 echo " 🌐 Demonstrating Zero-Trust Network Policies"
-echo " Target Namespace: ${NAMESPACE}"
 echo " Framework: NIST SP 800-207 Micro-Segmentation & Defense-in-Depth"
 echo "======================================================================"
 echo -e "${COLOR_RESET}"
+
+if type run_standard_preflight &>/dev/null; then
+  run_standard_preflight "${NAMESPACE}"
+fi
 
 # Retrieve target pods
 API_POD=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
@@ -149,7 +158,7 @@ ROGUE_POD="rogue-probe-$RANDOM"
 cleanup_rogue() {
   kubectl delete pod "${ROGUE_POD}" -n "${NAMESPACE}" --ignore-not-found=true --grace-period=0 --force >/dev/null 2>&1 || true
 }
-trap cleanup_rogue EXIT
+trap cleanup_rogue EXIT INT TERM
 
 # Launch rogue probe pod with minimal non-root security context to satisfy PSA Restricted
 kubectl run "${ROGUE_POD}" \

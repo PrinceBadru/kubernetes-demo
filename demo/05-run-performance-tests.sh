@@ -21,15 +21,19 @@
 #
 # DevSecOps Principles:
 #   - Quality Gates: Non-functional requirements (NFRs) enforced via code.
+#   - Machine-Readable Evidence: Structured JSON reports with target URLs & test profiles.
 #   - Automated Elasticity Validation: Validates that HPA scales pods before
 #     saturation causes catastrophic cascading failures.
 # ==============================================================================
 
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# Formatting and UI Helpers
-# ------------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/lib/preflight.sh" ]]; then
+  # shellcheck source=demo/lib/preflight.sh
+  source "${SCRIPT_DIR}/lib/preflight.sh"
+fi
+
 COLOR_RESET="\033[0m"
 COLOR_GREEN="\033[1;32m"
 COLOR_RED="\033[1;31m"
@@ -59,14 +63,25 @@ ARTIFACTS_DIR="artifacts/k6"
 mkdir -p "${ARTIFACTS_DIR}"
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
+START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 echo -e "${COLOR_CYAN}${BOLD}"
 echo "======================================================================"
 echo " ⚡ DevSecOps Demo: Step 5 - Automated Performance & Load Testing"
-echo " Target Endpoint:  ${BASE_URL}"
+echo " Target Endpoint:     ${BASE_URL}"
 echo " Artifacts Directory: ${ARTIFACTS_DIR}"
 echo "======================================================================"
 echo -e "${COLOR_RESET}"
+
+HPA_MONITOR_PID=""
+cleanup_perf() {
+  local exit_code=$?
+  if [[ -n "${HPA_MONITOR_PID}" ]]; then
+    kill "${HPA_MONITOR_PID}" 2>/dev/null || true
+  fi
+  exit $exit_code
+}
+trap cleanup_perf EXIT INT TERM
 
 # ------------------------------------------------------------------------------
 # Verify k6 Runtime (Local Binary or Docker Runner Fallback)
@@ -132,7 +147,7 @@ log_info "Executing scripts/k6/stress.js (Monitoring HPA scaling in background).
 # Start background monitor of HPA replicas during stress test
 (
   for i in {1..20}; do
-    kubectl get hpa -n devsecops-demo 2>/dev/null || true
+    kubectl get hpa -n "${NAMESPACE:-devsecops-demo}" 2>/dev/null || true
     sleep 10
   done
 ) &
@@ -146,12 +161,50 @@ else
   log_warn "Stress test finished with threshold alerts."
 fi
 
-# Kill background monitor if still running
+# Kill background monitor
 kill "${HPA_MONITOR_PID}" 2>/dev/null || true
+HPA_MONITOR_PID=""
 
 # ------------------------------------------------------------------------------
-# Performance Summary Table
+# Performance Summary Table & JSON Export
 # ------------------------------------------------------------------------------
+PERF_SUMMARY_JSON="${ARTIFACTS_DIR}/performance-summary.json"
+cat <<EOF > "${PERF_SUMMARY_JSON}"
+{
+  "schema_version": "1.0.0",
+  "suite": "k6-performance-suite",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "target_url": "${BASE_URL}",
+  "environment": {
+    "type": "live_endpoint",
+    "runner": "$([[ "${K6_CMD}" == "k6" ]] && echo "binary" || echo "docker")"
+  },
+  "profiles": [
+    {
+      "name": "smoke",
+      "target_vus": 1,
+      "slo": "p(95) < 200ms, Error rate < 1%",
+      "status": "$([[ $SMOKE_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")",
+      "artifact": "${SMOKE_JSON}"
+    },
+    {
+      "name": "load",
+      "target_vus": 25,
+      "slo": "p(95) < 300ms, p(99) < 500ms, Error rate < 1%",
+      "status": "$([[ $LOAD_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")",
+      "artifact": "${LOAD_JSON}"
+    },
+    {
+      "name": "stress",
+      "target_vus": 150,
+      "slo": "Graceful degradation, Error rate < 5%",
+      "status": "$([[ $STRESS_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")",
+      "artifact": "${STRESS_JSON}"
+    }
+  ]
+}
+EOF
+
 echo -e "\n${COLOR_CYAN}${BOLD}========================================================================================${COLOR_RESET}"
 echo -e "${COLOR_CYAN}${BOLD} Performance Test Results Summary${COLOR_RESET}"
 echo -e "${COLOR_CYAN}${BOLD}========================================================================================${COLOR_RESET}"
@@ -162,4 +215,10 @@ printf "%-14s | %-12s | %-28s | %-12s\n" "Load Test" "25 VUs" "p(95) < 300ms, Er
 printf "%-14s | %-12s | %-28s | %-12s\n" "Stress Test" "150 VUs" "Graceful Degrade, Error < 5%" "$([[ $STRESS_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")"
 echo "----------------------------------------------------------------------------------------"
 echo -e "Saved artifacts: ${ARTIFACTS_DIR}/"
+echo -e "JSON Summary:    ${PERF_SUMMARY_JSON}"
 echo -e "Next Step: Execute ${BOLD}bash demo/06-simulate-attack.sh${COLOR_RESET}"
+
+if [[ $SMOKE_EXIT -ne 0 || $LOAD_EXIT -ne 0 ]]; then
+  log_fail "One or more critical performance SLO thresholds were violated."
+  exit 1
+fi

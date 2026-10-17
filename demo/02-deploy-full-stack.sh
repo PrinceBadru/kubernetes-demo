@@ -62,6 +62,12 @@ log_error() {
   echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $1"
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/lib/preflight.sh" ]]; then
+  # shellcheck source=demo/lib/preflight.sh
+  source "${SCRIPT_DIR}/lib/preflight.sh"
+fi
+
 NAMESPACE="${NAMESPACE:-devsecops-demo}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 CLUSTER_NAME="${CLUSTER_NAME:-devsecops-cluster}"
@@ -72,10 +78,13 @@ FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 echo -e "${COLOR_MAGENTA}${BOLD}"
 echo "======================================================================"
 echo " 🚀 DevSecOps Demo: Step 2 - Full Stack Orchestrated Deployment"
-echo " Target Namespace: ${NAMESPACE}"
 echo " Container Image:  ${FULL_IMAGE}"
 echo "======================================================================"
 echo -e "${COLOR_RESET}"
+
+if type run_standard_preflight &>/dev/null; then
+  run_standard_preflight "${NAMESPACE}"
+fi
 
 # ------------------------------------------------------------------------------
 # Step 1: Build the API Container Image Locally
