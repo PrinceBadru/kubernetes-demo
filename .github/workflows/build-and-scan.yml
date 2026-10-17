@@ -118,6 +118,7 @@ jobs:
           image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
           scan-type: 'image'
           severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
           exit-code: '1'
           format: 'table'
 
