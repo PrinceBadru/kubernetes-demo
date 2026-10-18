@@ -178,8 +178,8 @@ fi
 log_info "Deploying NGINX Ingress Controller..."
 
 if [[ "$K8S_TOOL" == "kind" ]]; then
-  # Official KinD-optimized NGINX Ingress manifest
-  kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+  # Pinned KinD-optimized NGINX Ingress manifest (v1.11.3)
+  kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
   log_info "Waiting for Ingress NGINX controller pod to reach Ready status..."
   kubectl wait --namespace ingress-nginx \
     --for=condition=ready pod \
@@ -200,9 +200,8 @@ fi
 log_info "Deploying Kubernetes Metrics Server..."
 
 # DevSecOps Principle: Horizontal Pod Autoscaler requires the metrics.k8s.io API.
-# In local Kind/Minikube environments, kubelet certificates are self-signed.
-# We patch Metrics Server with --kubelet-insecure-tls to allow local scraping.
-METRICS_SERVER_YAML="https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+# Pinned to metrics-server tagged release v0.7.2
+METRICS_SERVER_YAML="https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml"
 
 kubectl apply -f "${METRICS_SERVER_YAML}"
 

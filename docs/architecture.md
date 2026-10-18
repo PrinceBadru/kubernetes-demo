@@ -47,7 +47,7 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
                       │ (Scrape /metrics on Port 3000)
       ┌───────────────┴────────────────┐
       │   Prometheus Monitoring        │  (Namespace: monitoring)
-      │   - Scrapes API every 5s       │
+      │   - Scrapes API every 15s      │
       │   - Grafana Port 3001          │
       └────────────────────────────────┘
 ```
@@ -66,13 +66,14 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
 
 ### 2.2 API Application Tier (`devsecops-demo-api`)
 
-- **Runtime:** Node.js 18 LTS running Express.js in ES Module mode (`"type": "module"`).
+- **Runtime:** Node.js 20 LTS running Express.js in ES Module mode (`"type": "module"`).
 - **Core Endpoints:**
   - `GET /`: Returns service metadata, runtime uptime, and pod hostname (`HOSTNAME`).
   - `GET /healthz`: Kubernetes **Liveness Probe**. Non-blocking health ping validating event-loop responsiveness.
   - `GET /readyz`: Kubernetes **Readiness Probe**. Indicates whether the pod should receive service endpoint traffic.
   - `GET /api/health`: **Deep Health Check**. Synthetically verifies connectivity to PostgreSQL (via `SELECT 1`) and Redis (via `PING`). Returns HTTP 200 when healthy, HTTP 503 when degraded.
-  - `GET /api/status`: Diagnostic endpoint reporting memory usage, V8 heap stats, and Node.js version.
+  - `GET /api/records`: **Audit Records Endpoint**. Parameterized database queries (`$1, $2`) with strict integer ID validation and input sanitization to neutralize SQL injection.
+  - `GET /api/status`: Diagnostic endpoint reporting process uptime, memory usage, V8 heap stats, and Node.js version.
   - `GET /metrics`: Standardized Prometheus scrape endpoint exposing latency histograms, request counters, and connection pool saturation metrics.
 - **Security Hardening:**
   - Express security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy`, `Strict-Transport-Security`).
@@ -181,8 +182,8 @@ The cluster employs **NIST SP 800-207 Zero-Trust Architecture** micro-segmentati
 
 ### 5.2 Observability Scrape Flow
 
-1. Prometheus server (in `monitoring` namespace) queries the Kubernetes Endpoints API for pods matching `app.kubernetes.io/name: api`.
-2. Prometheus issues HTTP `GET /metrics` on TCP port 3000 every 5 seconds.
+1. Prometheus server (in `monitoring` namespace) discovers pods using Kubernetes Pod service discovery (`role: pod`) matching `app.kubernetes.io/name: api` in namespace `devsecops-demo`.
+2. Prometheus issues HTTP `GET /metrics` on TCP port 3000 every 15 seconds.
 3. NetworkPolicy `allow-api-ingress` permits ingress from `namespaceSelector: { kubernetes.io/metadata.name: monitoring }`.
 4. API formats registered Prom-Client metrics and streams text response back to Prometheus.
 

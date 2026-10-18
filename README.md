@@ -38,7 +38,7 @@ The system implements a hardened 3-tier cloud-native architecture deployed in a 
       │         ▼                                         ▼              │
       │  ┌─────────────────────────┐           ┌────────────────────────┐│
       │  │ API Replica 1           │           │ API Replica 2          ││
-      │  │ - Express.js / Node 18  │           │ - Express.js / Node 18 ││
+      │  │ - Express.js / Node 20  │           │ - Express.js / Node 20 ││
       │  │ - Non-Root UID 1001     │◄--Anti---►│ - Non-Root UID 1001    ││
       │  │ - Read-Only RootFS      │  Affinity │ - Read-Only RootFS     ││
       │  │ - Capabilities: DROP ALL│           │ - Capabilities: DROP   ││
@@ -54,7 +54,7 @@ The system implements a hardened 3-tier cloud-native architecture deployed in a 
       │  └─────────────────────────┘           └────────────────────────┘│
       └──────────────────────────────────────────────────────────────────┘
                          ▲
-                         │ (Scrape /metrics every 5s)
+                         │ (Scrape /metrics every 15s)
       ┌──────────────────┴───────────────────────────┐
       │  Prometheus & Grafana Monitoring Gateway     │
       │  (Namespace: monitoring)                     │
@@ -63,7 +63,7 @@ The system implements a hardened 3-tier cloud-native architecture deployed in a 
 
 ---
 
-## ⚡ Quick Start (5 Commands to Full Demo)
+## ⚡ Quick Start (Complete 8-Step Demo Sequence)
 
 Run the automated demonstration suite from zero to full deployment on a local multi-node KinD cluster:
 
@@ -77,10 +77,19 @@ bash demo/02-deploy-full-stack.sh
 # 3. Verify zero-trust microsegmentation network policies
 bash demo/03-verify-network-policies.sh
 
-# 4. Simulate real-world container & network attacks (all blocked)
+# 4. Run automated security compliance suite (CIS Benchmark, PSS, SQLi, DAST)
+bash demo/04-run-security-tests.sh
+
+# 5. Run performance SLO tests and evaluate auto-scaling (k6)
+bash demo/05-run-performance-tests.sh
+
+# 6. Simulate real-world container & network attacks (all blocked)
 bash demo/06-simulate-attack.sh
 
-# 5. Open observability dashboards in your browser
+# 7. Execute chaos engineering, pod self-healing & dependency degradation
+bash demo/07-chaos-engineering.sh
+
+# 8. Open observability dashboards in your browser (Grafana, Prometheus, API)
 bash demo/08-show-dashboards.sh
 ```
 
@@ -251,12 +260,12 @@ Before running the demo or scripts, ensure your system meets the following requi
 
 ## 📚 Detailed Documentation Links
 
-- [Demo Walkthrough & Presentation Script](file:///c:/Users/user/Desktop/Personal%20Projects/kubernetes-demo/demo/README.md)
-- [Project Context & Executive Scope](file:///c:/Users/user/Desktop/Personal%20Projects/kubernetes-demo/docs/PROJECT_CONTEXT.md)
-- [System Architecture & Network Topology](file:///c:/Users/user/Desktop/Personal%20Projects/kubernetes-demo/docs/architecture.md)
-- [ADR 0001: Project Scope](file:///c:/Users/user/Desktop/Personal%20Projects/kubernetes-demo/docs/adr/0001-scope.md)
-- [ADR 0002: Node.js Runtime Selection](file:///c:/Users/user/Desktop/Personal%20Projects/kubernetes-demo/docs/adr/0002-nodejs.md)
-- [ADR 0003: Kubernetes Orchestration Selection](file:///c:/Users/user/Desktop/Personal%20Projects/kubernetes-demo/docs/adr/0003-kubernetes.md)
+- [Demo Walkthrough & Presentation Script](demo/README.md)
+- [Project Context & Executive Scope](docs/PROJECT_CONTEXT.md)
+- [System Architecture & Network Topology](docs/architecture.md)
+- [ADR 0001: Project Scope](docs/adr/0001-scope.md)
+- [ADR 0002: Node.js Runtime Selection](docs/adr/0002-nodejs.md)
+- [ADR 0003: Kubernetes Orchestration Selection](docs/adr/0003-kubernetes.md)
 
 ---
 

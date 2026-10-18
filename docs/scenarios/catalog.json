@@ -1,5 +1,5 @@
 {
-  "$schema": "docs/scenarios/schema.json",
+  "$schema": "./schema.json",
   "version": "1.0.0",
   "description": "Declarative, version-controlled catalog of all DevSecOps demonstration scenarios and automated security test contracts.",
   "scenarios": [
@@ -347,6 +347,39 @@
       "reversibility": {
         "cleanup_action": "stop_port_forward",
         "target": "port-forward-processes"
+      }
+    },
+    {
+      "id": "SCN-DAST-01",
+      "title": "Dynamic Application Security Testing (OWASP ZAP Baseline)",
+      "category": "application-security",
+      "learning_goal": "Identify OWASP Top 10 vulnerabilities, misconfigured HTTP security headers, and information disclosure through automated DAST baseline scanning.",
+      "control_type": "automated_dast",
+      "prerequisites": {
+        "cluster": false,
+        "namespace": "devsecops-demo",
+        "workloads": ["api"]
+      },
+      "execution": {
+        "mode": "live",
+        "script": "demo/04-run-security-tests.sh"
+      },
+      "expected_state": {
+        "before": "API service is active and listening for HTTP traffic.",
+        "during": "OWASP ZAP scanner sends passive and baseline active inspection probes against endpoints.",
+        "after": "DAST scan finishes with zero high/critical vulnerabilities and generates HTML/JSON report."
+      },
+      "evidence": {
+        "log_pattern": "OWASP ZAP baseline scan",
+        "command": "docker run --rm -t --net=host owasp/zap2docker-stable zap-baseline.py -t http://localhost:3000 -r zap-report.html"
+      },
+      "source_paths": {
+        "manifests": ["k8s/base/api-deployment.yaml"],
+        "scripts": ["demo/04-run-security-tests.sh"]
+      },
+      "reversibility": {
+        "cleanup_action": "delete_report",
+        "target": "artifacts/security/zap-report.html"
       }
     }
   ]
