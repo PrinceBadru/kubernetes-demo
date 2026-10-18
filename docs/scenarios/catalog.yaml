@@ -170,7 +170,7 @@ scenarios:
     evidence:
       metric: 'http_requests_total'
       log_pattern: 'Parameterized query treated payload as literal text'
-      command: "curl -s -H 'x-api-key: devsecops-demo-api-key' 'http://localhost:3000/api/records?search=%27%20OR%20%271%27=%271'"
+      command: "curl -s -H 'x-api-key: ${API_AUTH_TOKEN}' 'http://localhost:3000/api/records?search=%27%20OR%20%271%27=%271'"
     source_paths:
       manifests:
         - 'k8s/base/postgres-statefulset.yaml'

@@ -1,0 +1,16 @@
+# ==============================================================================
+# Gitleaks Configuration & Secret Detection Governance
+# ==============================================================================
+
+[allowlist]
+description = "Allowlist for scenario catalog documentation and educational test vectors"
+paths = [
+  '''docs/scenarios/catalog\.json''',
+  '''docs/scenarios/catalog\.yaml''',
+  '''tests/.*''',
+  '''demo/.*''',
+]
+stopwords = [
+  "devsecops-demo-api-key",
+  "DevSecOpsAdminSecure2026!",
+]
