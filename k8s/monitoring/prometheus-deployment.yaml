@@ -27,12 +27,9 @@ metadata:
     app.kubernetes.io/managed-by: kubectl
 rules:
   # DevSecOps Principle: Least Privilege & Granular Resource Access (NIST SP 800-53 AC-6)
-  # Stripped nodes/proxy, nodes/metrics, and workload controllers.
-  # Read-only access strictly to pods, services, and endpoints for Prometheus service discovery.
+  # Scoped strictly to pods matching the declared role: pod discovery configuration.
   - apiGroups: ['']
     resources:
-      - services
-      - endpoints
       - pods
     verbs: ['get', 'list', 'watch']
 
@@ -107,7 +104,7 @@ spec:
 
       containers:
         - name: prometheus
-          image: prom/prometheus:v2.48.0
+          image: prom/prometheus:v2.48.0@sha256:b440bc0e8aa5bab44a782952c09516b6a50f9d7b2325c1ffafac7bc833298e2e
           imagePullPolicy: IfNotPresent
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'

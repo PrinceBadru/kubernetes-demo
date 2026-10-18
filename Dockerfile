@@ -10,7 +10,7 @@
 # Purpose: Isolate build tooling, native compilation dependencies, and package
 # installation from the final runtime image to minimize attack surface and size.
 # ------------------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS deps
 
 # NIST SP 800-190 Section 3.1.1: Minimize base image footprint using Alpine Linux
 WORKDIR /app
@@ -31,7 +31,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 # Purpose: Minimal, hardened container containing only the application code and
 # production dependencies, running under an unprivileged user.
 # ------------------------------------------------------------------------------
-FROM node:20-alpine AS production
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS production
 
 # OCI (Open Container Initiative) Image Specification Labels for traceability:
 # Enables automated vulnerability scanners, SBOM tooling, and catalog auditing.
