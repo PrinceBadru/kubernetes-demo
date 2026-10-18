@@ -56,11 +56,17 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DATABASE=auditor
+      - PG_USER=app
+      - PG_PASSWORD=${POSTGRES_PASSWORD:-change_this_in_production}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=auditor
       - POSTGRES_USER=app
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change_this_in_production}
+      - DATABASE_URL=postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change_this_in_production}@postgres:5432/${POSTGRES_DB:-auditor}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
 
@@ -113,7 +119,7 @@ services:
 
     # Health Check: Probes Postgres socket to ensure database acceptance of client queries
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U app -d auditor']
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER:-app} -d $${POSTGRES_DB:-auditor}']
       interval: 10s
       timeout: 5s
       retries: 5

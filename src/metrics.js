@@ -101,9 +101,13 @@ export const metricsMiddleware = (req, res, next) => {
     const durationSeconds = Number(endTime - startTime) / 1e9;
 
     // Use normalized route pattern if available to prevent high cardinality metric explosion
-    const route = req.baseUrl
-      ? `${req.baseUrl}${req.route?.path || req.path || ''}`
-      : req.route?.path || req.path || 'unknown';
+    // Unmatched paths (404 Not Found) collapse to __unmatched__ to prevent DoS via label explosion
+    let route = 'unknown';
+    if (req.route?.path) {
+      route = req.baseUrl ? `${req.baseUrl}${req.route.path}` : req.route.path;
+    } else if (res.statusCode === 404) {
+      route = '__unmatched__';
+    }
 
     const method = req.method;
     const statusCode = res.statusCode.toString();

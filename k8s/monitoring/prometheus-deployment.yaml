@@ -26,27 +26,15 @@ metadata:
     app.kubernetes.io/part-of: devsecops-demo
     app.kubernetes.io/managed-by: kubectl
 rules:
-  # DevSecOps Principle: Granular Resource Access
-  # Read-only access to core resources for Prometheus kubernetes_sd_configs
+  # DevSecOps Principle: Least Privilege & Granular Resource Access (NIST SP 800-53 AC-6)
+  # Stripped nodes/proxy, nodes/metrics, and workload controllers.
+  # Read-only access strictly to pods, services, and endpoints for Prometheus service discovery.
   - apiGroups: ['']
     resources:
-      - nodes
-      - nodes/metrics
-      - nodes/proxy
       - services
       - endpoints
       - pods
     verbs: ['get', 'list', 'watch']
-  # Access to workload controllers for metadata enrichment
-  - apiGroups: ['apps']
-    resources:
-      - deployments
-      - daemonsets
-      - statefulsets
-    verbs: ['get', 'list', 'watch']
-  # Permission to query raw node/kubelet metric endpoints
-  - nonResourceURLs: ['/metrics']
-    verbs: ['get']
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -125,7 +113,6 @@ spec:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
             - '--storage.tsdb.retention.time=24h'
-            - '--web.enable-lifecycle'
           ports:
             - name: web
               containerPort: 9090
@@ -213,7 +200,7 @@ metadata:
     app.kubernetes.io/part-of: devsecops-demo
     app.kubernetes.io/managed-by: kubectl
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: prometheus
     app.kubernetes.io/component: monitoring
@@ -221,5 +208,4 @@ spec:
     - name: web
       port: 9090
       targetPort: 9090
-      nodePort: 30090
       protocol: TCP

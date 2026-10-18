@@ -18,19 +18,33 @@
 import Redis from 'ioredis';
 import { redisCommandsTotal } from './metrics.js';
 
+const isTest = process.env.NODE_ENV === 'test';
+
 // Configuration: prefer connection URI or individual parameters
 const redisUrl = process.env.REDIS_URL;
 
+const parsePort = (val, defaultPort) => {
+  if (!val) return defaultPort;
+  const num = Number(val);
+  if (!Number.isInteger(num) || num < 1 || num > 65535) {
+    throw new Error(
+      `Invalid port configuration: "${val}". Must be an integer between 1 and 65535.`,
+    );
+  }
+  return num;
+};
+
 const connectionOptions = {
   host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379', 10),
+  port: parsePort(process.env.REDIS_PORT, 6379),
   password: process.env.REDIS_PASSWORD || undefined,
   lazyConnect: true,
   enableOfflineQueue: false,
   maxRetriesPerRequest: 1,
+  commandTimeout: 2000,
   enableReadyCheck: true,
   retryStrategy: (times) => {
-    if (process.env.NODE_ENV === 'test') {
+    if (isTest) {
       return null;
     }
     // Exponential backoff capped at 3000ms to allow recovery without storming the server
@@ -38,7 +52,7 @@ const connectionOptions = {
     return delay;
   },
   reconnectOnError: (err) => {
-    if (process.env.NODE_ENV === 'test') {
+    if (isTest) {
       return false;
     }
     // Reconnect on failover or readonly error during Sentinel/Cluster switchovers
@@ -57,6 +71,7 @@ export const redis = redisUrl
       lazyConnect: isTest,
       enableOfflineQueue: !isTest,
       maxRetriesPerRequest: connectionOptions.maxRetriesPerRequest,
+      commandTimeout: 2000,
       retryStrategy: connectionOptions.retryStrategy,
     })
   : new Redis(connectionOptions);

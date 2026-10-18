@@ -61,6 +61,27 @@ app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 
 /**
+ * Authentication middleware for sensitive operational endpoints (NIST SP 800-53 AC-3).
+ * Requires valid X-API-Key header or Bearer authorization token when API_AUTH_TOKEN is configured.
+ */
+export const requireApiKey = (req, res, next) => {
+  const configuredToken = process.env.API_AUTH_TOKEN || process.env.API_KEY;
+  if (!configuredToken) {
+    return next();
+  }
+  const authHeader = req.headers['x-api-key'] || req.headers.authorization;
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+
+  if (!token || token !== configuredToken) {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Valid X-API-Key header or Bearer authorization token required',
+    });
+  }
+  next();
+};
+
+/**
  * Root service endpoint.
  * Returns basic service metadata, container hostname (pod identification), and version.
  */
@@ -78,17 +99,24 @@ app.get('/', (req, res) => {
  * Deep health check endpoint.
  * Evaluates operational status of downstream backing services (PostgreSQL & Redis).
  * Returns HTTP 200 if all services healthy, HTTP 503 if any service degraded.
+ * Sanitized to adhere to Least Privilege (no internal addresses or stack disclosures).
  */
 app.get('/api/health', async (req, res) => {
   try {
     const health = await deepHealthCheck();
     const statusCode = health.status === 'ok' ? 200 : 503;
-    return res.status(statusCode).json(health);
-  } catch (error) {
+    return res.status(statusCode).json({
+      status: health.status,
+      timestamp: health.timestamp,
+      services: {
+        postgres: health.services?.postgres?.status || 'unknown',
+        redis: health.services?.redis?.status || 'unknown',
+      },
+    });
+  } catch (_error) {
     return res.status(503).json({
       status: 'degraded',
       timestamp: new Date().toISOString(),
-      error: error.message,
     });
   }
 });
@@ -97,11 +125,11 @@ app.get('/api/health', async (req, res) => {
  * Audit log query endpoint with parameterized query protection.
  *
  * DevSecOps Principle (OWASP A03:2021 / CWE-89):
- * Accepts validated 'id' (integer) or 'search' (string) query parameters.
+ * Accepts validated 'id' (integer), 'search' (string), and 'limit' (integer) query parameters.
  * Uses parameterized prepared statements exclusively.
  * Returns HTTP 200 with matching records, or HTTP 400 for invalid inputs.
  */
-app.get('/api/records', async (req, res, next) => {
+app.get('/api/records', requireApiKey, async (req, res, next) => {
   try {
     const { id, search, limit } = req.query;
 
@@ -112,6 +140,17 @@ app.get('/api/records', async (req, res, next) => {
         return res.status(400).json({
           error: 'Validation Error',
           message: 'Parameter "id" must be a positive integer',
+        });
+      }
+    }
+
+    // Validate limit if supplied
+    if (limit !== undefined && limit !== '') {
+      const parsedLimit = Number(limit);
+      if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Parameter "limit" must be a positive integer',
         });
       }
     }
@@ -148,11 +187,20 @@ app.get('/healthz', (req, res) => {
   res.status(200).send('ok');
 });
 
+export let isReady = false;
+
+export const setReadyState = (ready) => {
+  isReady = Boolean(ready);
+};
+
 /**
  * Kubernetes Readiness Probe endpoint.
- * Indicates whether the pod is ready to accept user ingress traffic.
+ * Indicates whether the pod has initialized its schema and is ready for traffic.
  */
 app.get('/readyz', (req, res) => {
+  if (!isReady || isShuttingDown) {
+    return res.status(503).send('not ready');
+  }
   res.status(200).send('ready');
 });
 
@@ -163,10 +211,11 @@ app.get('/readyz', (req, res) => {
 app.get('/metrics', metricsEndpoint);
 
 /**
- * System diagnostic status endpoint.
+ * System diagnostic status endpoint (NIST SP 800-53 AC-3).
+ * Requires API key authorization to prevent information disclosure.
  * Reports Node.js runtime information, process uptime, memory consumption, and environment.
  */
-app.get('/api/status', (req, res) => {
+app.get('/api/status', requireApiKey, (req, res) => {
   res.status(200).json({
     uptime: Math.floor(process.uptime()),
     nodeVersion: process.version,
@@ -192,8 +241,19 @@ app.use((err, req, res, _next) => {
   });
 });
 
-// Configure listening port from environment variable with fallback to 3000
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const parsePort = (val, defaultPort) => {
+  if (!val) return defaultPort;
+  const num = Number(val);
+  if (!Number.isInteger(num) || num < 1 || num > 65535) {
+    throw new Error(
+      `Invalid PORT configuration: "${val}". Must be an integer between 1 and 65535.`,
+    );
+  }
+  return num;
+};
+
+// Configure listening port with strict integer range validation
+const PORT = parsePort(process.env.PORT, 3000);
 
 export let server = null;
 
@@ -202,7 +262,19 @@ if (process.env.NODE_ENV !== 'test') {
     console.info(
       `[Server] devsecops-demo-api listening on port ${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`,
     );
-    await initSchema();
+    try {
+      const schemaOk = await initSchema();
+      if (schemaOk) {
+        isReady = true;
+        console.info('[Server] Database schema initialized; readiness probe is ready');
+      } else {
+        console.warn(
+          '[Server] Database schema initialization deferred; readiness probe remains 503',
+        );
+      }
+    } catch (err) {
+      console.error('[Server] Schema initialization error on startup:', err.message);
+    }
   });
 }
 
@@ -223,6 +295,7 @@ const gracefulShutdown = async (signal) => {
     return;
   }
   isShuttingDown = true;
+  isReady = false;
   console.warn(`[Shutdown] Received ${signal}. Initiating graceful shutdown...`);
 
   // Forceful exit watchdog timer (10 seconds)

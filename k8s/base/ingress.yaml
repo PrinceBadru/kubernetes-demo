@@ -29,24 +29,25 @@ metadata:
 
     # -------------------------------------------------------------------------
     # DevSecOps Principle: Enforced Encryption-in-Transit (TLS)
-    # Automatically redirects unencrypted HTTP traffic (port 80) to HTTPS (port 443).
-    # Ensures all user tokens, credentials, and sensitive payloads are encrypted in flight.
+    # Default is false for out-of-the-box local demo clusters without cert-manager.
+    # When TLS certificates are provisioned (via cert-manager or demo/lib/generate-secrets.sh),
+    # set ssl-redirect to 'true' and uncomment spec.tls below.
     # -------------------------------------------------------------------------
-    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/force-ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/force-ssl-redirect: 'false'
 spec:
   ingressClassName: nginx
   # ---------------------------------------------------------------------------
   # DevSecOps Principle: Transport Layer Security (TLS) Termination
   # Production TLS termination secret. To enable:
   # 1. Generate or issue certificate via cert-manager / Let's Encrypt or corporate PKI.
-  # 2. Store certificate and private key in Secret 'api-tls'.
+  # 2. Store certificate and private key in Secret 'devsecops-demo-tls'.
   # 3. Uncomment the block below.
   # ---------------------------------------------------------------------------
   # tls:
   #   - hosts:
   #       - devsecops-demo.local
-  #     secretName: api-tls
+  #     secretName: devsecops-demo-tls
   rules:
     - host: devsecops-demo.local
       http:
