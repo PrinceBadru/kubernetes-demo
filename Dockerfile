@@ -1,6 +1,6 @@
 # ==============================================================================
 # DevSecOps Hardened Multi-Stage Dockerfile for API Service
-# Base Specification: Node.js 18 on Alpine Linux
+# Base Specification: Node.js 20 LTS on Alpine Linux
 # Architecture: Multi-Stage Build (deps -> production)
 # Compliance Standards: CIS Docker Benchmark 4.1, 4.6, 4.8; NIST SP 800-190
 # ==============================================================================
@@ -10,7 +10,7 @@
 # Purpose: Isolate build tooling, native compilation dependencies, and package
 # installation from the final runtime image to minimize attack surface and size.
 # ------------------------------------------------------------------------------
-FROM node:18-alpine AS deps
+FROM node:20-alpine AS deps
 
 # NIST SP 800-190 Section 3.1.1: Minimize base image footprint using Alpine Linux
 WORKDIR /app
@@ -31,7 +31,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 # Purpose: Minimal, hardened container containing only the application code and
 # production dependencies, running under an unprivileged user.
 # ------------------------------------------------------------------------------
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production
 
 # OCI (Open Container Initiative) Image Specification Labels for traceability:
 # Enables automated vulnerability scanners, SBOM tooling, and catalog auditing.

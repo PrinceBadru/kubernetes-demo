@@ -46,19 +46,19 @@ jobs:
       # Pinning to a major version (@v4) ensures stability and timely security patches.
       # ------------------------------------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       # ------------------------------------------------------------------------
       # DevSecOps Principle: Reproducible Toolchain & Runtime Pinning
-      # Pinning Node.js runtime version to Node 18 aligns CI execution exactly
-      # with the production container base image (node:18-alpine), mitigating
+      # Pinning Node.js runtime version to Node 20 LTS aligns CI execution exactly
+      # with the production container base image (node:20-alpine), mitigating
       # "works on my machine" discrepancies and runtime engine discrepancies.
       # Dependency caching reduces external network roundtrips and speeds up builds.
       # ------------------------------------------------------------------------
-      - name: Setup Node.js 18
-        uses: actions/setup-node@v4
+      - name: Setup Node.js 20 LTS
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
-          node-version: 18
+          node-version: 20
           cache: 'npm'
 
       # ------------------------------------------------------------------------

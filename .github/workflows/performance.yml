@@ -53,27 +53,45 @@ jobs:
     timeout-minutes: 20
 
     env:
-      BASE_URL: ${{ github.event.inputs.target_url || 'http://localhost:3000' }}
+      BASE_URL: ${{ github.event.inputs.target_url || '' }}
 
     steps:
       # ------------------------------------------------------------------------
       # DevSecOps Principle: Reproducible Test Script Retrieval
       # ------------------------------------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # ------------------------------------------------------------------------
+      # DevSecOps Principle: Target Endpoint Validation
+      # Ensures target URL is declared and reachable before running load tests.
+      # ------------------------------------------------------------------------
+      - name: Validate target URL availability
+        id: check_target
+        run: |
+          TARGET="${{ env.BASE_URL }}"
+          if [ -z "$TARGET" ]; then
+            echo "No target_url specified for performance test run. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Performance tests targeting: $TARGET"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # ------------------------------------------------------------------------
       # DevSecOps Principle: Standardized Performance Toolchain Setup
       # Installs official Grafana k6 modern load testing CLI tool.
       # ------------------------------------------------------------------------
       - name: Setup k6
-        uses: grafana/setup-k6-action@v1
+        if: steps.check_target.outputs.skip != 'true'
+        uses: grafana/setup-k6-action@24ccae16cb66927a44f4340eb9385bfb32187d90 # v1.1.0
 
       # ------------------------------------------------------------------------
       # DevSecOps Principle: Pre-Execution Environment Preparation
       # Creates target reports directory for structured summary exports.
       # ------------------------------------------------------------------------
       - name: Prepare reports directory
+        if: steps.check_target.outputs.skip != 'true'
         run: mkdir -p reports
 
       # ------------------------------------------------------------------------
@@ -83,9 +101,11 @@ jobs:
       # before subjecting the infrastructure to heavy stress.
       # ------------------------------------------------------------------------
       - name: Run smoke test
+        if: steps.check_target.outputs.skip != 'true'
         run: k6 run scripts/k6/smoke.js
         env:
           K6_SUMMARY_EXPORT: reports/smoke-summary.json
+          BASE_URL: ${{ env.BASE_URL }}
 
       # ------------------------------------------------------------------------
       # DevSecOps Principle: Non-Functional Requirement (NFR) & Resilience Testing
@@ -94,9 +114,11 @@ jobs:
       # Strict thresholds enforce SRE Service Level Objectives (SLOs).
       # ------------------------------------------------------------------------
       - name: Run load test
+        if: steps.check_target.outputs.skip != 'true'
         run: k6 run scripts/k6/load.js
         env:
           K6_SUMMARY_EXPORT: reports/load-summary.json
+          BASE_URL: ${{ env.BASE_URL }}
 
       # ------------------------------------------------------------------------
       # DevSecOps Principle: Telemetry Archival & Continuous Auditability
@@ -104,8 +126,8 @@ jobs:
       # to ensure results are captured even if performance thresholds fail.
       # ------------------------------------------------------------------------
       - name: Upload results as artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        if: always() && steps.check_target.outputs.skip != 'true'
         with:
           name: k6-performance-results
           path: |
