@@ -20,3 +20,11 @@ resources:
   - redis-deployment.yaml
   - redis-service.yaml
   - ingress.yaml
+
+# -----------------------------------------------------------------------------
+# Image Management: Configurable image name/tag overrides for CI and local deployments
+# -----------------------------------------------------------------------------
+images:
+  - name: devsecops-demo-api
+    newName: devsecops-demo-api
+    newTag: latest

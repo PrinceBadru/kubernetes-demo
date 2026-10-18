@@ -1,26 +1,4 @@
 # =============================================================================
-# DevSecOps Principle: Secret Decoupling & Credential Isolation
-# Sensitive administrative credentials must never be committed into source code
-# or hardcoded in container manifests. Kubernetes Secrets decouple secrets from
-# pod specifications and enable automated secret rotation.
-# =============================================================================
-apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-admin-credentials
-  namespace: monitoring
-  labels:
-    app.kubernetes.io/name: grafana
-    app.kubernetes.io/component: monitoring
-    app.kubernetes.io/part-of: devsecops-demo
-    app.kubernetes.io/managed-by: kubectl
-type: Opaque
-stringData:
-  admin-user: 'admin'
-  admin-password: 'DevSecOpsAdminSecure2026!'
-
----
-# =============================================================================
 # DevSecOps Principle: GitOps Datasource Provisioning
 # Datasources are defined declaratively as code rather than configured manually
 # in the UI. This eliminates configuration drift, guarantees repeatability across
@@ -879,9 +857,9 @@ spec:
 
 ---
 # =============================================================================
-# DevSecOps Principle: Service Exposition & Port Separation
-# Exposes Grafana on port 3001 internally (mapped to container targetPort 3000)
-# and NodePort 30091 externally for browser dashboard access.
+# DevSecOps Principle: Service Exposition & Least Exposure
+# Exposes Grafana internally via ClusterIP; access is managed via authenticated
+# Ingress with TLS or controlled kubectl port-forward.
 # =============================================================================
 apiVersion: v1
 kind: Service
@@ -894,13 +872,12 @@ metadata:
     app.kubernetes.io/part-of: devsecops-demo
     app.kubernetes.io/managed-by: kubectl
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring
   ports:
     - name: http
-      port: 3001
+      port: 3000
       targetPort: 3000
-      nodePort: 30091
       protocol: TCP

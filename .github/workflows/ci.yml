@@ -1,0 +1,314 @@
+name: CI
+
+# ==============================================================================
+# DevSecOps Master Pipeline: Shift-Left Assurance & Immutable Promotion Chain
+# Frameworks: NIST SP 800-218 (SSDF), SLSA Level 2, CIS Kubernetes Benchmark
+# ==============================================================================
+# Overview:
+# This workflow orchestrates the end-to-end continuous integration and deployment
+# pipeline with strict gatekeeping:
+#
+#   [Quality Gate]  ──┐
+#                     ├──> [Build & Push Gate] ──> [Continuous Deployment]
+#   [Security Gate] ──┘
+#
+# Publication to GHCR is strictly impossible if any lint, formatting, unit test,
+# catalog contract, secret scan, SAST, dependency vulnerability, or manifest rule fails.
+# ==============================================================================
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target_namespace:
+        description: 'Target Kubernetes Namespace'
+        required: false
+        default: 'devsecops-demo'
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Gate 1: Code Quality, Contracts & Layered Tests
+  # ============================================================================
+  quality:
+    name: Code Quality & Layered Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js 20 LTS
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies (clean install)
+        run: npm ci
+
+      - name: Verify static syntax & security lint rules (ESLint)
+        run: npm run lint
+
+      - name: Verify code style formatting (Prettier)
+        run: npm run format:check
+
+      - name: Execute layered application tests (node:test)
+        run: npm test
+
+      - name: Validate scenario catalog integrity & schema
+        run: npm run validate:catalog
+
+  # ============================================================================
+  # Gate 2: Security Scanning & Shift-Left Assurance
+  # ============================================================================
+  security:
+    name: Security Scanning & IaC Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout full git history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20 LTS
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@e9b251a37c568e64c399bfa53cb8fbe594d76f00 # v2.3.7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Semgrep SAST Scanner
+        uses: semgrep/semgrep-action@713efdd34f2402890db721869e5d4cb9547d21c3 # v1
+        with:
+          config: 'p/nodejs p/javascript p/owasp-top-ten'
+
+      - name: Audit Node.js package dependencies
+        run: npm audit --audit-level=high
+
+      - name: Run Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        with:
+          scan-type: 'fs'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          format: 'table'
+
+      - name: Run kube-linter on Kubernetes manifests
+        uses: stackrox/kube-linter-action@ca67eb2c0c1b7fa574ff7c244ad01d36d41eb3fa # v1.0.4
+        with:
+          directory: 'k8s'
+
+      - name: Run Checkov IaC Security Scanner
+        uses: bridgecrewio/checkov-action@125432d56a29777558ec944e8c1faeec6faaaefc # master
+        with:
+          directory: 'k8s/'
+          framework: 'kubernetes'
+          soft_fail: false
+
+  # ============================================================================
+  # Gate 3: Single-Build Immutable Container Promotion (SLSA Level 2)
+  # Gated by Quality AND Security checks.
+  # ============================================================================
+  build-and-publish:
+    name: Build, Scan & Promote Container
+    needs: [quality, security]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image_uri: ${{ steps.prep.outputs.image_uri }}
+      image_digest: ${{ steps.push.outputs.image_digest }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Prepare container repository name
+        id: prep
+        run: |
+          LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_URI="ghcr.io/${LOWER_REPO}"
+          echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
+          echo "Target Container URI: ${IMAGE_URI}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Login to GitHub Container Registry (GHCR)
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Build image once and load into local Docker daemon for pre-publish scanning
+      - name: Build container image locally
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.2
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: |
+            ${{ env.IMAGE_URI }}:${{ github.sha }}
+            ${{ env.IMAGE_URI }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Strict Shift-Left Container Gate: Hard failure on unpatched CVEs
+      - name: Scan container image with Trivy
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        with:
+          image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
+          scan-type: 'image'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          exit-code: '1'
+          format: 'table'
+
+      # Push the exact scanned image without rebuilding
+      - name: Push verified image to GHCR
+        id: push
+        run: |
+          echo "Publishing verified container image to GHCR..."
+          docker push "${{ env.IMAGE_URI }}:${{ github.sha }}"
+          docker push "${{ env.IMAGE_URI }}:latest"
+
+          IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${{ env.IMAGE_URI }}:${{ github.sha }}")
+          DIGEST_SHA=$(echo "$IMAGE_DIGEST" | awk -F'@' '{print $2}')
+          echo "image_digest=${DIGEST_SHA}" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_DIGEST=${DIGEST_SHA}" >> "$GITHUB_ENV"
+          echo "Published immutable digest: ${IMAGE_DIGEST}"
+
+          mkdir -p artifacts
+          echo "${IMAGE_DIGEST}" > artifacts/image-digest.txt
+
+      - name: Generate Software Bill of Materials (SBOM)
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        with:
+          image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
+          scan-type: 'image'
+          format: 'spdx-json'
+          output: 'sbom.spdx.json'
+
+      - name: Archive SBOM & Digest Artifacts
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: release-artifacts-${{ github.sha }}
+          path: |
+            sbom.spdx.json
+            artifacts/image-digest.txt
+          retention-days: 30
+
+  # ============================================================================
+  # Gate 4: Continuous Deployment with In-Cluster Verification
+  # ============================================================================
+  deploy:
+    name: Deploy to Kubernetes Cluster
+    needs: [build-and-publish]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@3e0aec8d80793e9b119a7ef6f25134e72fb4d509 # v4.0.0
+        with:
+          version: 'v1.30.0'
+
+      - name: Deployment preflight & credential verification
+        id: preflight
+        env:
+          KUBECONFIG_SECRET: ${{ secrets.KUBECONFIG }}
+          IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ -z "$KUBECONFIG_SECRET" ]; then
+            if [ "$IS_MANUAL" = "true" ]; then
+              echo "::error::Manual deployment triggered, but KUBECONFIG secret is missing."
+              exit 1
+            else
+              echo "::notice::Automated deployment skipped: KUBECONFIG secret not configured in repository."
+              echo "skip_deploy=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          mkdir -p "$HOME/.kube"
+          if echo "$KUBECONFIG_SECRET" | base64 -d > "$HOME/.kube/config" 2>/dev/null; then
+            echo "Decoded base64-encoded KUBECONFIG."
+          else
+            echo "$KUBECONFIG_SECRET" > "$HOME/.kube/config"
+          fi
+          chmod 600 "$HOME/.kube/config"
+
+          if ! kubectl cluster-info --request-timeout=10s; then
+            echo "::error::Target Kubernetes API server is unreachable."
+            exit 1
+          fi
+
+          echo "skip_deploy=false" >> "$GITHUB_OUTPUT"
+
+      - name: Apply namespace
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        run: kubectl apply -f k8s/namespace.yaml
+
+      - name: Apply security policies
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        run: kubectl apply -f k8s/security/
+
+      - name: Configure deployment image via Kustomize
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          IMAGE_URI: ${{ needs.build-and-publish.outputs.image_uri }}
+          IMAGE_DIGEST: ${{ needs.build-and-publish.outputs.image_digest }}
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
+        run: |
+          echo "Setting deployment image to ${IMAGE_URI}@${IMAGE_DIGEST} via Kustomize..."
+          cd k8s/base
+          kustomize edit set namespace "${TARGET_NAMESPACE}"
+          kustomize edit set image devsecops-demo-api="${IMAGE_URI}@${IMAGE_DIGEST}"
+          cd ../..
+
+      - name: Apply base workloads with Kustomize
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        run: kubectl apply -k k8s/base/
+
+      - name: Wait for API rollout
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
+        run: kubectl rollout status deployment/api -n "${TARGET_NAMESPACE}" --timeout=120s
+
+      - name: In-cluster smoke test
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
+        run: |
+          kubectl run curl-test --image=curlimages/curl:8.10.1 --rm -i --restart=Never -n "${TARGET_NAMESPACE}" -- curl -f -m 5 http://api/healthz

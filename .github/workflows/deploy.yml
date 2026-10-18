@@ -46,10 +46,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@3e0aec8d80793e9b119a7ef6f25134e72fb4d509 # v4.0.0
         with:
           version: 'v1.30.0'
 
@@ -115,20 +115,38 @@ jobs:
           echo "Applying zero-trust network policies, RBAC, and quotas..."
           kubectl apply -f k8s/security/
 
+      - name: Configure deployment image and namespace
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
+        run: |
+          LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_URI="ghcr.io/${LOWER_REPO}"
+          IMAGE_TAG="${{ github.sha }}"
+          echo "Configuring Kustomize with image ${IMAGE_URI}:${IMAGE_TAG} in namespace ${TARGET_NAMESPACE}..."
+          cd k8s/base
+          kustomize edit set namespace "${TARGET_NAMESPACE}"
+          kustomize edit set image devsecops-demo-api="${IMAGE_URI}:${IMAGE_TAG}"
+          cd ../..
+
       - name: Apply base manifests
         if: steps.preflight.outputs.skip_deploy != 'true'
         run: |
-          echo "Applying base workload manifests (API, PostgreSQL, Redis, Ingress)..."
-          kubectl apply -f k8s/base/
+          echo "Applying base workload manifests with Kustomize..."
+          kubectl apply -k k8s/base/
 
       - name: Wait for rollout
         if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
         run: |
           echo "Waiting for API deployment rollout to reach Ready state..."
-          kubectl rollout status deployment/api -n devsecops-demo --timeout=120s
+          kubectl rollout status deployment/api -n "${TARGET_NAMESPACE}" --timeout=120s
 
       - name: Smoke test
         if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
         run: |
           echo "Executing in-cluster API liveness check..."
-          kubectl run curl-test --image=curlimages/curl --rm -i --restart=Never -n devsecops-demo -- curl -f -m 5 http://api/healthz
+          kubectl run curl-test --image=curlimages/curl:8.10.1 --rm -i --restart=Never -n "${TARGET_NAMESPACE}" -- curl -f -m 5 http://api/healthz

@@ -39,6 +39,7 @@ spec:
         app.kubernetes.io/part-of: devsecops-demo
         app.kubernetes.io/managed-by: kubectl
     spec:
+      serviceAccountName: api-service-account
       automountServiceAccountToken: false
       # -----------------------------------------------------------------------
       # DevSecOps Principle: Graceful Termination
@@ -83,7 +84,7 @@ spec:
 
       containers:
         - name: devsecops-demo-api
-          image: devsecops-demo-api:1.0.0
+          image: devsecops-demo-api:latest
           # Use IfNotPresent for local dev images; in production use image digests (sha256)
           imagePullPolicy: IfNotPresent
 
