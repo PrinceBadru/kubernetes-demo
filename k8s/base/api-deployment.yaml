@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: api
   namespace: devsecops-demo
+  annotations:
+    ignore-check.kube-linter.io/non-existent-service-account: 'ServiceAccount api-service-account is declared in k8s/base/service-account.yaml and k8s/security/service-account.yaml'
   labels:
     # -------------------------------------------------------------------------
     # Resource Identification Labels
@@ -84,7 +86,7 @@ spec:
 
       containers:
         - name: devsecops-demo-api
-          image: devsecops-demo-api:latest
+          image: devsecops-demo-api:1.0.0
           # Use IfNotPresent for local dev images; in production use image digests (sha256)
           imagePullPolicy: IfNotPresent
 

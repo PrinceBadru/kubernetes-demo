@@ -12,6 +12,7 @@ namespace: devsecops-demo
 resources:
   - configmap.yaml
   - secrets.yaml
+  - service-account.yaml
   - api-deployment.yaml
   - api-service.yaml
   - api-hpa.yaml
@@ -27,4 +28,4 @@ resources:
 images:
   - name: devsecops-demo-api
     newName: devsecops-demo-api
-    newTag: latest
+    newTag: '1.0.0'

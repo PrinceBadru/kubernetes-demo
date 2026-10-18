@@ -72,7 +72,7 @@ NAMESPACE="${NAMESPACE:-devsecops-demo}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 CLUSTER_NAME="${CLUSTER_NAME:-devsecops-cluster}"
 IMAGE_NAME="devsecops-demo-api"
-IMAGE_TAG="latest"
+IMAGE_TAG="${IMAGE_TAG:-1.0.0}"
 FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 
 echo -e "${COLOR_MAGENTA}${BOLD}"
