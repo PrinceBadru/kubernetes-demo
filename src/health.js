@@ -38,9 +38,12 @@ import { healthCheckStatus } from './metrics.js';
  *   }
  * }>}
  */
-export const deepHealthCheck = async () => {
+export const deepHealthCheck = async ({
+  checkPg = checkPostgres,
+  checkCache = checkRedis,
+} = {}) => {
   // Execute checks in parallel to minimize latency
-  const [pgResult, redisResult] = await Promise.all([checkPostgres(), checkRedis()]);
+  const [pgResult, redisResult] = await Promise.all([checkPg(), checkCache()]);
 
   // Update Prometheus gauges for downstream dependency health
   healthCheckStatus.set({ service: 'postgres' }, pgResult.ok ? 1 : 0);

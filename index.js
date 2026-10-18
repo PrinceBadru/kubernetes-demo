@@ -63,11 +63,26 @@ app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 /**
  * Authentication middleware for sensitive operational endpoints (NIST SP 800-53 AC-3).
  * Requires valid X-API-Key header or Bearer authorization token when API_AUTH_TOKEN is configured.
+ * Fails closed: in production, missing token configuration is a critical configuration error (HTTP 500).
+ * In non-production, anonymous access is rejected (HTTP 401) unless ALLOW_ANONYMOUS_ACCESS=true is set.
  */
 export const requireApiKey = (req, res, next) => {
   const configuredToken = process.env.API_AUTH_TOKEN || process.env.API_KEY;
   if (!configuredToken) {
-    return next();
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(500).json({
+        error: 'Configuration Error',
+        message: 'API authentication token is not configured on server',
+      });
+    }
+    if (process.env.ALLOW_ANONYMOUS_ACCESS === 'true') {
+      return next();
+    }
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message:
+        'API authentication required. Configure API_AUTH_TOKEN or set ALLOW_ANONYMOUS_ACCESS=true for local dev',
+    });
   }
   const authHeader = req.headers['x-api-key'] || req.headers.authorization;
   const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
@@ -133,10 +148,12 @@ app.get('/api/records', requireApiKey, async (req, res, next) => {
   try {
     const { id, search, limit } = req.query;
 
-    // Validate ID if supplied
+    const DECIMAL_INT_REGEX = /^[1-9]\d*$/;
+
+    // Validate ID if supplied (strict decimal positive integer)
     if (id !== undefined && id !== '') {
-      const parsedId = Number(id);
-      if (!Number.isInteger(parsedId) || parsedId <= 0) {
+      const strId = String(id).trim();
+      if (!DECIMAL_INT_REGEX.test(strId) || !Number.isSafeInteger(Number(strId))) {
         return res.status(400).json({
           error: 'Validation Error',
           message: 'Parameter "id" must be a positive integer',
@@ -144,10 +161,10 @@ app.get('/api/records', requireApiKey, async (req, res, next) => {
       }
     }
 
-    // Validate limit if supplied
+    // Validate limit if supplied (strict decimal positive integer)
     if (limit !== undefined && limit !== '') {
-      const parsedLimit = Number(limit);
-      if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+      const strLimit = String(limit).trim();
+      if (!DECIMAL_INT_REGEX.test(strLimit) || !Number.isSafeInteger(Number(strLimit))) {
         return res.status(400).json({
           error: 'Validation Error',
           message: 'Parameter "limit" must be a positive integer',
@@ -255,26 +272,54 @@ const parsePort = (val, defaultPort) => {
 // Configure listening port with strict integer range validation
 const PORT = parsePort(process.env.PORT, 3000);
 
+/**
+ * Asynchronous bounded retry loop for database schema initialization on startup.
+ * Guarantees resilient recovery if PostgreSQL is temporarily booting, while keeping
+ * the liveness probe responsive and deferring readiness until schema initialization succeeds.
+ *
+ * @param {number} maxAttempts
+ * @param {number} delayMs
+ * @returns {Promise<boolean>}
+ */
+export const bootstrapSchemaWithRetry = async (maxAttempts = 15, delayMs = 2000) => {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (isShuttingDown) {
+      return false;
+    }
+    try {
+      const ok = await initSchema();
+      if (ok) {
+        isReady = true;
+        console.info(
+          `[Server] Database schema initialized on attempt ${attempt}; readiness probe is ready`,
+        );
+        return true;
+      }
+    } catch (err) {
+      console.warn(
+        `[Server] Database schema initialization attempt ${attempt}/${maxAttempts} failed: ${err.message}`,
+      );
+    }
+    if (attempt < maxAttempts && !isShuttingDown) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  console.warn(
+    '[Server] Database schema initialization deferred after maximum retry attempts; readiness probe remains 503',
+  );
+  return false;
+};
+
 export let server = null;
 
 if (process.env.NODE_ENV !== 'test') {
-  server = app.listen(PORT, async () => {
+  server = app.listen(PORT, () => {
     console.info(
       `[Server] devsecops-demo-api listening on port ${PORT} (NODE_ENV: ${process.env.NODE_ENV || 'development'})`,
     );
-    try {
-      const schemaOk = await initSchema();
-      if (schemaOk) {
-        isReady = true;
-        console.info('[Server] Database schema initialized; readiness probe is ready');
-      } else {
-        console.warn(
-          '[Server] Database schema initialization deferred; readiness probe remains 503',
-        );
-      }
-    } catch (err) {
-      console.error('[Server] Schema initialization error on startup:', err.message);
-    }
+    bootstrapSchemaWithRetry().catch((err) => {
+      console.error('[Server] Unhandled bootstrap error:', err.message);
+    });
   });
 }
 
@@ -305,32 +350,41 @@ const gracefulShutdown = async (signal) => {
   }, 10000);
   forceExitTimeout.unref();
 
-  server.close(async (err) => {
-    if (err) {
-      console.error('[Shutdown] Error while closing HTTP server:', err.message);
-    } else {
-      console.info('[Shutdown] HTTP server closed successfully.');
-    }
+  const closeServer = () =>
+    new Promise((resolve) => {
+      if (!server || !server.listening) {
+        return resolve();
+      }
+      server.close((err) => {
+        if (err) {
+          console.error('[Shutdown] Error while closing HTTP server:', err.message);
+        } else {
+          console.info('[Shutdown] HTTP server closed successfully.');
+        }
+        resolve();
+      });
+    });
 
-    try {
-      console.info('[Shutdown] Closing PostgreSQL connection pool...');
-      await pool.end();
-      console.info('[Shutdown] PostgreSQL connection pool closed.');
-    } catch (dbErr) {
-      console.error('[Shutdown] Error closing PostgreSQL pool:', dbErr.message);
-    }
+  await closeServer();
 
-    try {
-      console.info('[Shutdown] Closing Redis client connection...');
-      await redis.quit();
-      console.info('[Shutdown] Redis client disconnected.');
-    } catch (redisErr) {
-      console.error('[Shutdown] Error disconnecting Redis client:', redisErr.message);
-    }
+  try {
+    console.info('[Shutdown] Closing PostgreSQL connection pool...');
+    await pool.end();
+    console.info('[Shutdown] PostgreSQL connection pool closed.');
+  } catch (dbErr) {
+    console.error('[Shutdown] Error closing PostgreSQL pool:', dbErr.message);
+  }
 
-    console.info('[Shutdown] Graceful cleanup completed. Exiting process.');
-    process.exit(0);
-  });
+  try {
+    console.info('[Shutdown] Closing Redis client connection...');
+    await redis.quit();
+    console.info('[Shutdown] Redis client disconnected.');
+  } catch (redisErr) {
+    console.error('[Shutdown] Error disconnecting Redis client:', redisErr.message);
+  }
+
+  console.info('[Shutdown] Graceful cleanup completed. Exiting process.');
+  process.exit(0);
 };
 
 // Register signal handlers for Kubernetes pod termination (SIGTERM) and local dev (SIGINT)

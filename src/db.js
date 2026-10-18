@@ -53,14 +53,23 @@ const validateDbPassword = (password) => {
   }
 };
 
-const rawPassword =
+let effectivePassword =
   process.env.PG_PASSWORD ||
   process.env.POSTGRES_PASSWORD ||
   (process.env.NODE_ENV === 'production' ? undefined : 'CHANGE_ME_IN_PRODUCTION');
 
-if (!process.env.DATABASE_URL) {
-  validateDbPassword(rawPassword);
+if (process.env.DATABASE_URL) {
+  try {
+    const parsedUrl = new URL(process.env.DATABASE_URL);
+    if (parsedUrl.password) {
+      effectivePassword = decodeURIComponent(parsedUrl.password);
+    }
+  } catch (err) {
+    throw new Error(`Invalid DATABASE_URL configuration: ${err.message}`);
+  }
 }
+
+validateDbPassword(effectivePassword);
 
 // Construct pool options from individual env variables or a full DATABASE_URL
 // Supports both PG_* and POSTGRES_* variable conventions (DevSecOps interoperability)
@@ -75,7 +84,7 @@ const poolConfig = process.env.DATABASE_URL
       host: process.env.PG_HOST || process.env.POSTGRES_HOST || 'localhost',
       port: parsePositiveInt(process.env.PG_PORT || process.env.POSTGRES_PORT, 5432, 1, 65535),
       user: process.env.PG_USER || process.env.POSTGRES_USER || 'app',
-      password: rawPassword,
+      password: effectivePassword,
       database: process.env.PG_DATABASE || process.env.POSTGRES_DB || 'auditor',
       max: parsePositiveInt(process.env.PG_POOL_MAX, 10, 1, 100),
       idleTimeoutMillis: parsePositiveInt(process.env.PG_IDLE_TIMEOUT_MS, 30000, 1000, 300000),
@@ -144,6 +153,7 @@ export const checkPostgres = async () => {
       pool.query({
         text: 'SELECT 1',
         statement_timeout: 2500,
+        query_timeout: 2500,
       }),
       timeoutPromise,
     ]);
@@ -164,6 +174,8 @@ export const checkPostgres = async () => {
   }
 };
 
+const DECIMAL_INT_REGEX = /^[1-9]\d*$/;
+
 /**
  * Queries audit log records using strictly parameterized prepared statements.
  *
@@ -173,21 +185,33 @@ export const checkPostgres = async () => {
  * impossible regardless of payload content.
  *
  * @param {Object} options
- * @param {number} [options.id] - Optional record ID
+ * @param {number|string} [options.id] - Optional record ID (strict positive integer)
  * @param {string} [options.search] - Optional action substring to search
- * @param {number} [options.limit=10] - Result limit (bounded between 1 and 50)
+ * @param {number|string} [options.limit=10] - Result limit (bounded between 1 and 50)
  * @returns {Promise<Array<Object>>}
  */
 export const queryRecords = async ({ id, search, limit = 10 } = {}) => {
-  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
-
-  if (id !== undefined && id !== null && id !== '') {
-    const numericId = Number(id);
-    if (!Number.isInteger(numericId) || numericId <= 0) {
-      const err = new Error('Invalid record ID: must be a positive integer');
+  let safeLimit = 10;
+  if (limit !== undefined && limit !== null && limit !== '') {
+    const strLimit = String(limit).trim();
+    if (!DECIMAL_INT_REGEX.test(strLimit) || !Number.isSafeInteger(Number(strLimit))) {
+      const err = new Error('Invalid limit: must be a positive integer in standard decimal format');
       err.status = 400;
       throw err;
     }
+    safeLimit = Math.min(Math.max(Number(strLimit), 1), 50);
+  }
+
+  if (id !== undefined && id !== null && id !== '') {
+    const strId = String(id).trim();
+    if (!DECIMAL_INT_REGEX.test(strId) || !Number.isSafeInteger(Number(strId))) {
+      const err = new Error(
+        'Invalid record ID: must be a positive integer in standard decimal format',
+      );
+      err.status = 400;
+      throw err;
+    }
+    const numericId = Number(strId);
     const result = await pool.query(
       'SELECT id, action, actor, details, created_at FROM audit_logs WHERE id = $1 LIMIT 1',
       [numericId],
@@ -221,30 +245,12 @@ const initSqlPath = path.join(__dirname, 'db', 'init.sql');
  */
 export const initSchema = async () => {
   try {
-    let sqlContent;
-    if (fs.existsSync(initSqlPath)) {
-      sqlContent = fs.readFileSync(initSqlPath, 'utf8');
-    } else {
-      sqlContent = `
-        CREATE TABLE IF NOT EXISTS audit_logs (
-          id SERIAL PRIMARY KEY,
-          action VARCHAR(64) NOT NULL,
-          actor VARCHAR(64) NOT NULL,
-          details TEXT,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-        );
-        INSERT INTO audit_logs (id, action, actor, details)
-        VALUES 
-          (1, 'USER_LOGIN', 'admin@demo.local', 'Successful authentication from trusted internal CIDR'),
-          (2, 'KEY_ROTATION', 'system', 'Automated service account token rotation completed'),
-          (3, 'DEPLOYMENT', 'ci-runner', 'Version 1.0.0 deployed to devsecops-demo namespace'),
-          (4, 'POLICY_AUDIT', 'security-scanner', 'Zero-trust network policies and Pod Security Admission validated')
-        ON CONFLICT (id) DO NOTHING;
-        SELECT setval(pg_get_serial_sequence('audit_logs', 'id'), COALESCE((SELECT MAX(id) FROM audit_logs), 1));
-      `;
+    if (!fs.existsSync(initSqlPath)) {
+      throw new Error(`Canonical schema file not found at ${initSqlPath}`);
     }
+    const sqlContent = fs.readFileSync(initSqlPath, 'utf8');
     await pool.query(sqlContent);
-    console.info('[DB] Schema and seed data initialized successfully');
+    console.info('[DB] Schema and seed data initialized successfully from canonical init.sql');
     return true;
   } catch (err) {
     console.warn('[DB] Schema initialization deferred or unavailable:', err.message);

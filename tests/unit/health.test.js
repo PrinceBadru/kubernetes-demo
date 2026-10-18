@@ -25,11 +25,62 @@ describe('Deep Health Check Subsystem', () => {
     assert.equal(typeof result.services.redis.status, 'string');
   });
 
+  it('should deterministically report healthy (status: ok) when all dependencies pass', async () => {
+    const mockPg = async () => ({ ok: true, latencyMs: 5 });
+    const mockRedis = async () => ({ ok: true, latencyMs: 2 });
+
+    const result = await deepHealthCheck({ checkPg: mockPg, checkCache: mockRedis });
+
+    assert.equal(result.status, 'ok');
+    assert.equal(result.services.postgres.status, 'ok');
+    assert.equal(result.services.postgres.latencyMs, 5);
+    assert.equal(result.services.redis.status, 'ok');
+    assert.equal(result.services.redis.latencyMs, 2);
+
+    const metric = await healthCheckStatus.get();
+    const pgGauge = metric.values.find((v) => v.labels.service === 'postgres');
+    const redisGauge = metric.values.find((v) => v.labels.service === 'redis');
+    assert.equal(pgGauge.value, 1);
+    assert.equal(redisGauge.value, 1);
+  });
+
+  it('should deterministically report degraded when PostgreSQL fails', async () => {
+    const mockPg = async () => ({ ok: false, latencyMs: 15, error: 'connection refused' });
+    const mockRedis = async () => ({ ok: true, latencyMs: 3 });
+
+    const result = await deepHealthCheck({ checkPg: mockPg, checkCache: mockRedis });
+
+    assert.equal(result.status, 'degraded');
+    assert.equal(result.services.postgres.status, 'down');
+    assert.equal(result.services.redis.status, 'ok');
+
+    const metric = await healthCheckStatus.get();
+    const pgGauge = metric.values.find((v) => v.labels.service === 'postgres');
+    const redisGauge = metric.values.find((v) => v.labels.service === 'redis');
+    assert.equal(pgGauge.value, 0);
+    assert.equal(redisGauge.value, 1);
+  });
+
+  it('should deterministically report degraded when Redis fails', async () => {
+    const mockPg = async () => ({ ok: true, latencyMs: 4 });
+    const mockRedis = async () => ({ ok: false, latencyMs: 2000, error: 'timeout' });
+
+    const result = await deepHealthCheck({ checkPg: mockPg, checkCache: mockRedis });
+
+    assert.equal(result.status, 'degraded');
+    assert.equal(result.services.postgres.status, 'ok');
+    assert.equal(result.services.redis.status, 'down');
+
+    const metric = await healthCheckStatus.get();
+    const pgGauge = metric.values.find((v) => v.labels.service === 'postgres');
+    const redisGauge = metric.values.find((v) => v.labels.service === 'redis');
+    assert.equal(pgGauge.value, 1);
+    assert.equal(redisGauge.value, 0);
+  });
+
   it('should accurately reflect downstream dependency health in Prometheus gauges', async () => {
-    // When deepHealthCheck runs, it updates Prometheus healthCheckStatus gauges
     const result = await deepHealthCheck();
 
-    // Verify gauge metric is populated with values
     const metric = await healthCheckStatus.get();
     assert.ok(metric.values.length >= 2);
 
@@ -39,7 +90,6 @@ describe('Deep Health Check Subsystem', () => {
     assert.ok(pgValue);
     assert.ok(redisValue);
 
-    // Assert gauge values deterministically reflect inspected service status
     assert.equal(pgValue.value, result.services.postgres.status === 'ok' ? 1 : 0);
     assert.equal(redisValue.value, result.services.redis.status === 'ok' ? 1 : 0);
   });
