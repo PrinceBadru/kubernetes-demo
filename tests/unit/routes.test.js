@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 describe('HTTP Routing & Security Baseline', () => {
   let server;
   let baseUrl;
+  let mod;
 
   before(async () => {
     process.env.NODE_ENV = 'test';
-    const mod = await import('../../index.js');
+    mod = await import('../../index.js');
     const app = mod.default;
 
     await new Promise((resolve) => {
@@ -65,11 +66,20 @@ describe('HTTP Routing & Security Baseline', () => {
       assert.equal(text, 'ok');
     });
 
-    it('GET /readyz should return 200 ready for readiness probe', async () => {
-      const res = await fetch(`${baseUrl}/readyz`);
-      assert.equal(res.status, 200);
-      const text = await res.text();
-      assert.equal(text, 'ready');
+    it('GET /readyz should return 503 when not ready, and 200 when ready', async () => {
+      // 1. Initial unready state
+      mod.setReadyState(false);
+      const resUnready = await fetch(`${baseUrl}/readyz`);
+      assert.equal(resUnready.status, 503);
+      const textUnready = await resUnready.text();
+      assert.equal(textUnready, 'not ready');
+
+      // 2. Initialized ready state
+      mod.setReadyState(true);
+      const resReady = await fetch(`${baseUrl}/readyz`);
+      assert.equal(resReady.status, 200);
+      const textReady = await resReady.text();
+      assert.equal(textReady, 'ready');
     });
 
     it('GET /api/status should return process uptime and runtime info', async () => {
@@ -98,6 +108,14 @@ describe('HTTP Routing & Security Baseline', () => {
       assert.equal(body.error, 'Validation Error');
     });
 
+    it('GET /api/records?limit=invalid should reject non-integer limit with HTTP 400', async () => {
+      const res = await fetch(`${baseUrl}/api/records?limit=abc`);
+      assert.equal(res.status, 400);
+      const body = await res.json();
+      assert.equal(body.error, 'Validation Error');
+      assert.match(body.message, /positive integer/);
+    });
+
     it('GET /api/records?search=... should reject oversized search strings with HTTP 400', async () => {
       const longString = 'A'.repeat(105);
       const res = await fetch(`${baseUrl}/api/records?search=${longString}`);
@@ -110,6 +128,40 @@ describe('HTTP Routing & Security Baseline', () => {
     it('GET /non-existent-route should return HTTP 404', async () => {
       const res = await fetch(`${baseUrl}/api/missing-route`);
       assert.equal(res.status, 404);
+    });
+
+    it('should enforce API Key authentication when API_AUTH_TOKEN is configured', async () => {
+      process.env.API_AUTH_TOKEN = 'test-secret-key-123';
+      try {
+        // Without key -> 401
+        const unauthRes = await fetch(`${baseUrl}/api/records`);
+        assert.equal(unauthRes.status, 401);
+
+        // With X-API-Key -> authorized
+        const authRes = await fetch(`${baseUrl}/api/records?id=abc`, {
+          headers: { 'x-api-key': 'test-secret-key-123' },
+        });
+        // Passed auth, reached validation logic
+        assert.equal(authRes.status, 400);
+      } finally {
+        delete process.env.API_AUTH_TOKEN;
+      }
+    });
+
+    it('should collapse unmatched 404 paths to __unmatched__ in metrics to prevent metric explosion', async () => {
+      // Send multiple distinct 404 paths
+      for (let i = 0; i < 15; i++) {
+        const res = await fetch(`${baseUrl}/random-non-existent-path-${i}`);
+        assert.equal(res.status, 404);
+      }
+
+      // Fetch /metrics and verify cardinality is bounded
+      const metricsRes = await fetch(`${baseUrl}/metrics`);
+      assert.equal(metricsRes.status, 200);
+      const metricsText = await metricsRes.text();
+
+      assert.match(metricsText, /route="__unmatched__"/);
+      assert.doesNotMatch(metricsText, /route="\/random-non-existent-path-0"/);
     });
   });
 });

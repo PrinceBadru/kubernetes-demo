@@ -22,7 +22,7 @@ set -euo pipefail
 # Configuration
 API_URL="${API_URL:-http://localhost:3000}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-5}"
-REPORT_FILE="${REPORT_FILE:-reports/sqli-results.json}"
+REPORT_FILE="${REPORT_FILE:-artifacts/security/sql-injection-results.json}"
 
 # Test tracking
 PASSED=0
@@ -161,11 +161,32 @@ assert_vector() {
   done
 
   # Check 3: Expected status code verification
-  if [[ "${code}" == "${expected_code}" ]]; then
-    record_result "${test_id}" "${test_name}" "PASS" "${expected_description}" "${code}" "${dur_ms}"
-  else
+  if [[ "${code}" != "${expected_code}" ]]; then
     record_result "${test_id}" "${test_name}" "FAIL" "Expected HTTP ${expected_code}, observed HTTP ${code}. Response: ${content:0:80}" "${code}" "${dur_ms}"
+    return
   fi
+
+  # Check 4: For search tautology (SQLI-02), assert count is strictly 0 (no bypassed rows)
+  if [[ "${test_id}" == "SQLI-02" ]]; then
+    local match_count
+    match_count=$(echo "${content}" | grep -o '"count":[0-9]*' | head -n1 | cut -d: -f2 || echo "-1")
+    if [[ "${match_count}" -ne 0 ]]; then
+      record_result "${test_id}" "${test_name}" "FAIL" "Tautology bypassed WHERE clause: returned ${match_count} rows instead of 0 literal matches" "${code}" "${dur_ms}"
+      return
+    fi
+  fi
+
+  # Check 5: For stacked DROP query (SQLI-03), assert audit_logs table remains intact and functional
+  if [[ "${test_id}" == "SQLI-03" ]]; then
+    local verify_code
+    verify_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records?id=1" || echo "000")
+    if [[ "${verify_code}" != "200" ]]; then
+      record_result "${test_id}" "${test_name}" "FAIL" "Destructive DDL query dropped or damaged table: GET /api/records?id=1 returned HTTP ${verify_code}" "${code}" "${dur_ms}"
+      return
+    fi
+  fi
+
+  record_result "${test_id}" "${test_name}" "PASS" "${expected_description}" "${code}" "${dur_ms}"
 }
 
 # ------------------------------------------------------------------------------
@@ -188,7 +209,7 @@ assert_vector \
   "Tautology search parameter (search=' OR '1'='1)" \
   "search=%27%20OR%20%271%27=%271" \
   "200" \
-  "Parameterized query treated payload as literal text; 0 rows matched; no SQL bypass"
+  "Parameterized query treated payload as literal text; parsed count is strictly 0"
 
 # ------------------------------------------------------------------------------
 # Test 3: Stacked Query DDL Injection
@@ -199,7 +220,7 @@ assert_vector \
   "Stacked query injection (search='; DROP TABLE audit_logs;--)" \
   "search=%27;%20DROP%20TABLE%20audit_logs;--" \
   "200" \
-  "Prepared statement prevented multi-statement execution; table remains intact"
+  "Prepared statement prevented multi-statement execution; verification query confirmed table remains intact"
 
 # ------------------------------------------------------------------------------
 # Test 4: UNION SELECT Information Disclosure

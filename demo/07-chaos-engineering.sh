@@ -117,6 +117,8 @@ echo -e "\n${COLOR_CYAN}Current Pod Inventory:${COLOR_RESET}"
 kubectl get pods -n "${NAMESPACE}" -o wide
 echo ""
 
+CHAOS_FAILURES=0
+
 # ------------------------------------------------------------------------------
 # Chaos 1: Kill an Active API Pod (Self-Healing via ReplicaSet)
 # ------------------------------------------------------------------------------
@@ -128,7 +130,8 @@ if [[ -z "${TARGET_POD}" ]]; then
 fi
 
 if [[ -z "${TARGET_POD}" ]]; then
-  log_warn "No API pod found to terminate in namespace ${NAMESPACE}. Skipping Chaos 1."
+  echo -e "${COLOR_RED}[FAIL] No API pod found to terminate in namespace ${NAMESPACE}.${COLOR_RESET}"
+  CHAOS_FAILURES=$((CHAOS_FAILURES + 1))
 else
   echo -e "Target Pod Selected for Termination: ${BOLD}${TARGET_POD}${COLOR_RESET}"
 
@@ -155,11 +158,20 @@ else
   wait "${DELETE_PID}" 2>/dev/null || true
 
   log_info "Waiting for ReplicaSet to reconcile replacement pod..."
-  kubectl rollout status deployment/api -n "${NAMESPACE}" --timeout=60s
+  if kubectl rollout status deployment/api -n "${NAMESPACE}" --timeout=60s; then
+    REPLACEMENT_PODS=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+    log_success "ReplicaSet self-healed! Current active replicas: ${REPLACEMENT_PODS}"
+  else
+    echo -e "${COLOR_RED}[FAIL] ReplicaSet failed to rollout replacement pod within 60s.${COLOR_RESET}"
+    CHAOS_FAILURES=$((CHAOS_FAILURES + 1))
+  fi
 
-  REPLACEMENT_PODS=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
-  log_success "ReplicaSet self-healed! Current active replicas: ${REPLACEMENT_PODS}"
-  log_success "Zero-downtime preserved: ${SUCCESSFUL_PROBES}/${TOTAL_PROBES} probes succeeded during pod death."
+  if [[ ${SUCCESSFUL_PROBES} -eq 0 ]]; then
+    echo -e "${COLOR_RED}[FAIL] Zero-downtime violated: 0/${TOTAL_PROBES} probes succeeded during pod death.${COLOR_RESET}"
+    CHAOS_FAILURES=$((CHAOS_FAILURES + 1))
+  else
+    log_success "Zero-downtime preserved: ${SUCCESSFUL_PROBES}/${TOTAL_PROBES} probes succeeded during pod death."
+  fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -224,9 +236,24 @@ log_info "Probing Liveness Probe (/healthz):"
 LIVENESS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/healthz" 2>/dev/null || echo "000")
 echo -e "  Liveness Status: HTTP ${BOLD}${LIVENESS_CODE}${COLOR_RESET} (Expected: 200 - Process remains alive)"
 
+if [[ "${LIVENESS_CODE}" != "200" ]]; then
+  echo -e "${COLOR_RED}[FAIL] Liveness probe failed during downstream dependency outage (HTTP ${LIVENESS_CODE})!${COLOR_RESET}"
+  CHAOS_FAILURES=$((CHAOS_FAILURES + 1))
+else
+  log_success "Liveness probe stayed 200 OK during downstream dependency outage."
+fi
+
 log_info "Probing Deep Dependency Health (/api/health):"
-HEALTH_RESPONSE=$(curl -s "${API_URL}/api/health" 2>/dev/null || echo '{"status":"offline"}')
-echo -e "  Health Response: ${COLOR_YELLOW}${HEALTH_RESPONSE}${COLOR_RESET}"
+HEALTH_RAW=$(curl -s -w "\n%{http_code}" "${API_URL}/api/health" 2>/dev/null || echo '{"status":"offline"}\n000')
+HEALTH_BODY=$(echo "${HEALTH_RAW}" | sed '$d')
+HEALTH_CODE=$(echo "${HEALTH_RAW}" | tail -n 1)
+echo -e "  Health Response (HTTP ${HEALTH_CODE}): ${COLOR_YELLOW}${HEALTH_BODY}${COLOR_RESET}"
+
+if [[ "${HEALTH_CODE}" == "503" ]] || echo "${HEALTH_BODY}" | grep -qiE "degraded|down|offline"; then
+  log_success "Deep health correctly flagged degraded downstream service status."
+else
+  echo -e "${COLOR_YELLOW}[WARN] Deep health check did not report degraded state during Redis outage.${COLOR_RESET}"
+fi
 
 log_info "Restoring Redis cache tier (scaling back to ${ORIGINAL_REDIS_REPLICAS} replica(s))..."
 kubectl scale deployment redis -n "${NAMESPACE}" --replicas="${ORIGINAL_REDIS_REPLICAS}"
@@ -234,12 +261,28 @@ kubectl rollout status deployment/redis -n "${NAMESPACE}" --timeout=60s
 
 log_info "Re-verifying Deep Health Check post-recovery..."
 sleep 3
-RECOVERED_HEALTH=$(curl -s "${API_URL}/api/health" 2>/dev/null || echo '{"status":"unknown"}')
-echo -e "  Post-recovery Health: ${COLOR_GREEN}${RECOVERED_HEALTH}${COLOR_RESET}"
+RECOVERED_RAW=$(curl -s -w "\n%{http_code}" "${API_URL}/api/health" 2>/dev/null || echo '{"status":"unknown"}\n000')
+RECOVERED_BODY=$(echo "${RECOVERED_RAW}" | sed '$d')
+RECOVERED_CODE=$(echo "${RECOVERED_RAW}" | tail -n 1)
+echo -e "  Post-recovery Health (HTTP ${RECOVERED_CODE}): ${COLOR_GREEN}${RECOVERED_BODY}${COLOR_RESET}"
+
+if [[ "${RECOVERED_CODE}" == "200" ]] || echo "${RECOVERED_BODY}" | grep -qi "healthy"; then
+  log_success "Deep health check restored to healthy state."
+else
+  echo -e "${COLOR_RED}[FAIL] Service did not recover to healthy status post-Redis restoration.${COLOR_RESET}"
+  CHAOS_FAILURES=$((CHAOS_FAILURES + 1))
+fi
 
 log_success "Dependency degradation handled with zero cascading restarts!"
 
+if [[ ${CHAOS_FAILURES} -gt 0 ]]; then
+  echo -e "\n${COLOR_RED}${BOLD}======================================================================${COLOR_RESET}"
+  echo -e "${COLOR_RED}${BOLD} ❌ Step 7 Failed: ${CHAOS_FAILURES} Chaos Scenario Assertion(s) Failed!${COLOR_RESET}"
+  echo -e "${COLOR_RED}${BOLD}======================================================================${COLOR_RESET}"
+  exit 1
+fi
+
 echo -e "\n${COLOR_GREEN}${BOLD}======================================================================${COLOR_RESET}"
-echo -e "${COLOR_GREEN}${BOLD} ✅ Step 7 Complete: Chaos Engineering Scenarios Verified!${COLOR_RESET}"
+echo -e "${COLOR_GREEN}${BOLD} ✅ Step 7 Complete: All Chaos Engineering Scenarios Verified!${COLOR_RESET}"
 echo -e "${COLOR_GREEN}${BOLD}======================================================================${COLOR_RESET}"
 echo -e "Next Step: Execute ${BOLD}bash demo/08-show-dashboards.sh${COLOR_RESET}"

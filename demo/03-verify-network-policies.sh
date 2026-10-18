@@ -256,4 +256,12 @@ for res in "${TEST_RESULTS[@]}"; do
 done
 echo "----------------------------------------------------------------------------------------"
 echo -e "Score: ${BOLD}${TOTAL_PASS}/${#TEST_RESULTS[@]} checks passed.${COLOR_RESET}"
-echo -e "${COLOR_CYAN}Conclusion: Zero-Trust Network Microsegmentation is functioning flawlessly.${COLOR_RESET}"
+
+FAIL_COUNT=$((${#TEST_RESULTS[@]} - TOTAL_PASS))
+if [[ ${FAIL_COUNT} -gt 0 ]]; then
+  echo -e "\n${COLOR_RED}${BOLD}❌ FAILURE: ${FAIL_COUNT} network policy check(s) failed! Zero-Trust violations detected.${COLOR_RESET}"
+  exit 1
+else
+  echo -e "\n${COLOR_GREEN}${BOLD}✅ SUCCESS: All ${TOTAL_PASS}/${#TEST_RESULTS[@]} Zero-Trust microsegmentation checks passed!${COLOR_RESET}"
+fi
+

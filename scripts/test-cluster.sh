@@ -40,7 +40,15 @@ if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
   exit 0
 fi
 
-echo -e "${COLOR_GREEN}[PREFLIGHT OK] Connected to cluster context: $(kubectl config current-context)${COLOR_RESET}"
+# Preflight 4: Enforce Context Safety Gate (NIST SP 800-207 Zero Trust)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/../demo/lib/preflight.sh" ]]; then
+  # shellcheck source=demo/lib/preflight.sh
+  source "${SCRIPT_DIR}/../demo/lib/preflight.sh"
+  check_context_safety
+fi
+
+echo -e "${COLOR_GREEN}[PREFLIGHT OK] Verified disposable cluster context: $(kubectl config current-context)${COLOR_RESET}"
 echo ""
 
 echo -e "${COLOR_CYAN}--> Executing Container Security Validation Suite...${COLOR_RESET}"

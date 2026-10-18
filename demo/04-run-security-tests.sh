@@ -135,7 +135,7 @@ fi
 log_suite "3/4" "SQL Injection & Input Sanitization Defense Suite"
 if [[ -f tests/security/sql-injection.test.sh ]]; then
   log_info "Executing tests/security/sql-injection.test.sh..."
-  if bash tests/security/sql-injection.test.sh; then
+  if REPORT_FILE="artifacts/security/sql-injection-results.json" bash tests/security/sql-injection.test.sh; then
     SQLI_STATUS="PASSED"
     log_pass "SQL injection defense suite PASSED."
   else
@@ -159,13 +159,25 @@ if command -v docker &>/dev/null && docker info &>/dev/null; then
   log_info "Evaluating availability of OWASP ZAP container runner..."
   if [[ "${RUN_ZAP:-false}" == "true" ]] || docker images | grep -q "owasp/zap2docker-stable"; then
     log_info "Running OWASP ZAP baseline scan against ${ZAP_TARGET}..."
+    set +e
     docker run --rm -t --net=host \
       -v "${PWD}/${REPORT_DIR}:/zap/wrk/:rw" \
       owasp/zap2docker-stable zap-baseline.py \
       -t "${ZAP_TARGET}" \
-      -r zap-report.html || true
-    ZAP_STATUS="COMPLETED"
-    log_pass "OWASP ZAP baseline scan generated in ${REPORT_DIR}/zap-report.html."
+      -r zap-report.html
+    ZAP_EXIT=$?
+    set -e
+    if [[ ${ZAP_EXIT} -eq 0 ]]; then
+      ZAP_STATUS="PASSED"
+      log_pass "OWASP ZAP baseline scan passed without findings."
+    elif [[ ${ZAP_EXIT} -eq 2 ]]; then
+      ZAP_STATUS="WARNINGS"
+      log_warn "OWASP ZAP baseline scan reported warnings (check ${REPORT_DIR}/zap-report.html)."
+    else
+      ZAP_STATUS="FAILED"
+      SUITE_FAILURES=$((SUITE_FAILURES + 1))
+      log_fail "OWASP ZAP baseline scan failed with exit code ${ZAP_EXIT}."
+    fi
   else
     log_info "OWASP ZAP scan skipped by default (Set RUN_ZAP=true to run DAST scan)."
     ZAP_STATUS="SKIPPED"
@@ -181,6 +193,8 @@ OVERALL_STATUS=$([[ ${SUITE_FAILURES} -eq 0 ]] && echo "PASSED" || echo "FAILED"
 # ------------------------------------------------------------------------------
 # Export Machine-Readable JSON Report
 # ------------------------------------------------------------------------------
+PASSED_COUNT=$(( $([[ "${CONTAINER_SEC_STATUS}" == "PASSED" ]] && echo 1 || echo 0) + $([[ "${NETPOL_STATUS}" == "PASSED" ]] && echo 1 || echo 0) + $([[ "${SQLI_STATUS}" == "PASSED" ]] && echo 1 || echo 0) + $([[ "${ZAP_STATUS}" == "PASSED" ]] && echo 1 || echo 0) ))
+
 cat <<EOF > "${JSON_REPORT_FILE}"
 {
   "schema_version": "1.0.0",
@@ -194,7 +208,7 @@ cat <<EOF > "${JSON_REPORT_FILE}"
   },
   "summary": {
     "total_suites": 4,
-    "passed": $([[ "${CONTAINER_SEC_STATUS}" == "PASSED" ]] && echo 1 || echo 0) + $([[ "${NETPOL_STATUS}" == "PASSED" ]] && echo 1 || echo 0) + $([[ "${SQLI_STATUS}" == "PASSED" ]] && echo 1 || echo 0),
+    "passed": ${PASSED_COUNT},
     "failed": ${SUITE_FAILURES},
     "skipped": $([[ "${ZAP_STATUS}" == "SKIPPED" ]] && echo 1 || echo 0),
     "status": "${OVERALL_STATUS}"
@@ -237,7 +251,7 @@ cat <<EOF > "${JSON_REPORT_FILE}"
       "status": "${ZAP_STATUS}",
       "target": "${ZAP_TARGET}",
       "expected_value": "Zero high/medium risk baseline findings",
-      "observed_value": "$([[ "${ZAP_STATUS}" == "COMPLETED" ]] && echo "Scan completed" || echo "Skipped (optional)")",
+      "observed_value": "$([[ "${ZAP_STATUS}" == "PASSED" ]] && echo "Scan passed without findings" || echo "${ZAP_STATUS}")",
       "log_ref": "${REPORT_DIR}/zap-report.html"
     }
   ]

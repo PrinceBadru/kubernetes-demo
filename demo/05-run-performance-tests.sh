@@ -73,6 +73,10 @@ echo " Artifacts Directory: ${ARTIFACTS_DIR}"
 echo "======================================================================"
 echo -e "${COLOR_RESET}"
 
+if type run_standard_preflight &>/dev/null; then
+  run_standard_preflight "${NAMESPACE:-devsecops-demo}"
+fi
+
 HPA_MONITOR_PID=""
 cleanup_perf() {
   local exit_code=$?
@@ -184,21 +188,21 @@ cat <<EOF > "${PERF_SUMMARY_JSON}"
       "name": "smoke",
       "target_vus": 1,
       "slo": "p(95) < 200ms, Error rate < 1%",
-      "status": "$([[ $SMOKE_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")",
+      "status": "$([[ $SMOKE_EXIT -eq 0 ]] && echo "PASSED" || echo "FAILED")",
       "artifact": "${SMOKE_JSON}"
     },
     {
       "name": "load",
       "target_vus": 25,
       "slo": "p(95) < 300ms, p(99) < 500ms, Error rate < 1%",
-      "status": "$([[ $LOAD_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")",
+      "status": "$([[ $LOAD_EXIT -eq 0 ]] && echo "PASSED" || echo "FAILED")",
       "artifact": "${LOAD_JSON}"
     },
     {
       "name": "stress",
       "target_vus": 150,
       "slo": "Graceful degradation, Error rate < 5%",
-      "status": "$([[ $STRESS_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")",
+      "status": "$([[ $STRESS_EXIT -eq 0 ]] && echo "PASSED" || echo "FAILED")",
       "artifact": "${STRESS_JSON}"
     }
   ]
@@ -210,15 +214,15 @@ echo -e "${COLOR_CYAN}${BOLD} Performance Test Results Summary${COLOR_RESET}"
 echo -e "${COLOR_CYAN}${BOLD}========================================================================================${COLOR_RESET}"
 printf "%-14s | %-12s | %-28s | %-12s\n" "Test Type" "Target VUs" "Primary SLO Gate" "Result"
 echo "----------------------------------------------------------------------------------------"
-printf "%-14s | %-12s | %-28s | %-12s\n" "Smoke Test" "1 VU" "p(95) < 200ms, Error < 1%" "$([[ $SMOKE_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")"
-printf "%-14s | %-12s | %-28s | %-12s\n" "Load Test" "25 VUs" "p(95) < 300ms, Error < 1%" "$([[ $LOAD_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")"
-printf "%-14s | %-12s | %-28s | %-12s\n" "Stress Test" "150 VUs" "Graceful Degrade, Error < 5%" "$([[ $STRESS_EXIT -eq 0 ]] && echo "PASSED" || echo "REVIEW")"
+printf "%-14s | %-12s | %-28s | %-12s\n" "Smoke Test" "1 VU" "p(95) < 200ms, Error < 1%" "$([[ $SMOKE_EXIT -eq 0 ]] && echo "PASSED" || echo "FAILED")"
+printf "%-14s | %-12s | %-28s | %-12s\n" "Load Test" "25 VUs" "p(95) < 300ms, Error < 1%" "$([[ $LOAD_EXIT -eq 0 ]] && echo "PASSED" || echo "FAILED")"
+printf "%-14s | %-12s | %-28s | %-12s\n" "Stress Test" "150 VUs" "Graceful Degrade, Error < 5%" "$([[ $STRESS_EXIT -eq 0 ]] && echo "PASSED" || echo "FAILED")"
 echo "----------------------------------------------------------------------------------------"
 echo -e "Saved artifacts: ${ARTIFACTS_DIR}/"
 echo -e "JSON Summary:    ${PERF_SUMMARY_JSON}"
 echo -e "Next Step: Execute ${BOLD}bash demo/06-simulate-attack.sh${COLOR_RESET}"
 
-if [[ $SMOKE_EXIT -ne 0 || $LOAD_EXIT -ne 0 ]]; then
+if [[ $SMOKE_EXIT -ne 0 || $LOAD_EXIT -ne 0 || $STRESS_EXIT -ne 0 ]]; then
   log_fail "One or more critical performance SLO thresholds were violated."
   exit 1
 fi

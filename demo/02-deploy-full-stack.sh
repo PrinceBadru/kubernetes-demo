@@ -146,6 +146,9 @@ log_success "Security governance, RBAC, and zero-trust network policies enforced
 # Step 5: Apply Secrets and ConfigMaps
 # ------------------------------------------------------------------------------
 log_step "5/10" "Provisioning ConfigMap and Secrets..."
+if [[ -f "${SCRIPT_DIR}/lib/generate-secrets.sh" ]]; then
+  "${SCRIPT_DIR}/lib/generate-secrets.sh"
+fi
 kubectl apply -f k8s/base/configmap.yaml
 kubectl apply -f k8s/base/secrets.yaml
 log_success "Configuration and credentials mounted."
@@ -203,12 +206,31 @@ log_success "Ingress rule created (Host: devsecops-demo.local, Port 80 -> Servic
 # ------------------------------------------------------------------------------
 log_step "9/10" "Verifying / Provisioning Observability Stack (monitoring namespace)..."
 
-kubectl create namespace "${MONITORING_NAMESPACE}" 2>/dev/null || true
+if [[ -f k8s/monitoring/namespace.yaml ]]; then
+  kubectl apply -f k8s/monitoring/namespace.yaml
+else
+  kubectl create namespace "${MONITORING_NAMESPACE}" 2>/dev/null || true
+fi
 
-# If Prometheus manifests exist in repo or need deploying, apply them
-if [[ -d monitoring ]] || [[ -d k8s/monitoring ]]; then
+# Ensure monitoring secrets and network policies are generated and applied
+if [[ -f "${SCRIPT_DIR}/lib/generate-secrets.sh" ]]; then
+  "${SCRIPT_DIR}/lib/generate-secrets.sh"
+fi
+
+if [[ -f k8s/monitoring/network-policies.yaml ]]; then
+  kubectl apply -f k8s/monitoring/network-policies.yaml
+fi
+
+if [[ -f k8s/monitoring/grafana-secrets.yaml ]]; then
+  kubectl apply -f k8s/monitoring/grafana-secrets.yaml
+fi
+
+# If Prometheus manifests exist in repo, apply them
+if [[ -d k8s/monitoring ]]; then
   log_info "Applying repository monitoring manifests..."
-  kubectl apply -R -f monitoring/ 2>/dev/null || kubectl apply -R -f k8s/monitoring/ 2>/dev/null || true
+  kubectl apply -f k8s/monitoring/
+elif [[ -d monitoring ]]; then
+  kubectl apply -R -f monitoring/
 else
   log_info "Deploying lightweight Prometheus & Grafana stack for metrics scraping..."
   # Create lightweight Prometheus config and deployment for scraping API /metrics
@@ -343,9 +365,20 @@ EOF
 fi
 
 log_info "Waiting for monitoring stack rollout..."
-kubectl rollout status deployment/prometheus -n "${MONITORING_NAMESPACE}" --timeout=120s 2>/dev/null || true
-kubectl rollout status deployment/grafana -n "${MONITORING_NAMESPACE}" --timeout=120s 2>/dev/null || true
-log_success "Monitoring stack operational."
+MONITORING_DEGRADED=false
+if ! kubectl rollout status deployment/prometheus -n "${MONITORING_NAMESPACE}" --timeout=120s; then
+  log_warn "Prometheus deployment did not achieve ready status within 120s (observability degraded)."
+  MONITORING_DEGRADED=true
+fi
+if ! kubectl rollout status deployment/grafana -n "${MONITORING_NAMESPACE}" --timeout=120s; then
+  log_warn "Grafana deployment did not achieve ready status within 120s (observability degraded)."
+  MONITORING_DEGRADED=true
+fi
+if [ "$MONITORING_DEGRADED" = "true" ]; then
+  log_warn "Monitoring stack deployment degraded; application tier remains operational."
+else
+  log_success "Monitoring stack operational."
+fi
 
 # ------------------------------------------------------------------------------
 # Step 10: Print Deployment Status and Access Endpoints

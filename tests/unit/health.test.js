@@ -27,9 +27,20 @@ describe('Deep Health Check Subsystem', () => {
 
   it('should accurately reflect downstream dependency health in Prometheus gauges', async () => {
     // When deepHealthCheck runs, it updates Prometheus healthCheckStatus gauges
-    await deepHealthCheck();
+    const result = await deepHealthCheck();
 
-    // Verify gauge objects exist and can be inspected
-    assert.ok(healthCheckStatus);
+    // Verify gauge metric is populated with values
+    const metric = await healthCheckStatus.get();
+    assert.ok(metric.values.length >= 2);
+
+    const pgValue = metric.values.find((v) => v.labels.service === 'postgres');
+    const redisValue = metric.values.find((v) => v.labels.service === 'redis');
+
+    assert.ok(pgValue);
+    assert.ok(redisValue);
+
+    // Assert gauge values deterministically reflect inspected service status
+    assert.equal(pgValue.value, result.services.postgres.status === 'ok' ? 1 : 0);
+    assert.equal(redisValue.value, result.services.redis.status === 'ok' ? 1 : 0);
   });
 });
