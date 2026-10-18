@@ -30,13 +30,31 @@ export const options = {
     failed_requests: ['rate<0.01'],
     // DevSecOps SLO Gate: 95% of requests must complete under 200ms
     http_req_duration: ['p(95)<200'],
+    // DevSecOps Assertion Gate: Over 99% of checks must pass (F-45)
+    checks: ['rate>0.99'],
   },
 };
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
+const BASE_URL =
+  __ENV.BASE_URL && __ENV.BASE_URL.trim() !== '' ? __ENV.BASE_URL.trim() : 'http://localhost:3000';
+const API_TOKEN = __ENV.API_KEY || __ENV.API_AUTH_TOKEN || 'devsecops-demo-api-key';
+
+export function setup() {
+  // Fail fast if target endpoint is unreachable (F-62)
+  const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
+  if (probe.status !== 200) {
+    throw new Error(
+      `[k6] BASE_URL "${BASE_URL}" failed health probe (HTTP ${probe.status}). Aborting test execution.`,
+    );
+  }
+}
 
 export default function () {
   const headers = { 'User-Agent': 'k6-smoke-test/1.0.0' };
+  const authHeaders = {
+    ...headers,
+    'x-api-key': API_TOKEN,
+  };
 
   // 1. Validate root API endpoint
   const rootRes = http.get(`${BASE_URL}/`, { headers });
@@ -70,7 +88,7 @@ export default function () {
   failureRate.add(!readyzSuccess);
 
   // 4. Validate system status diagnostic endpoint
-  const statusRes = http.get(`${BASE_URL}/api/status`, { headers });
+  const statusRes = http.get(`${BASE_URL}/api/status`, { headers: authHeaders });
   const statusSuccess = check(statusRes, {
     'status endpoint is 200': (r) => r.status === 200,
     'status reports node version': (r) => {

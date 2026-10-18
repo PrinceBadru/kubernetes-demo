@@ -89,6 +89,8 @@ fi
 
 log_info "API reachability verified. Executing parameterized SQL defense assertions..."
 
+API_AUTH_TOKEN="${API_AUTH_TOKEN:-${API_KEY:-devsecops-demo-api-key}}"
+
 # Forbidden patterns indicating database error/schema leakage
 SQL_LEAK_PATTERNS=(
   "syntax error at or near"
@@ -103,16 +105,19 @@ SQL_LEAK_PATTERNS=(
 )
 
 # ------------------------------------------------------------------------------
-# Test 0: Baseline Positive Control (Valid Data Retrieval)
+# Test 0: Baseline Positive Control (Valid Data Retrieval & Integrity Snapshot)
 # ------------------------------------------------------------------------------
 START_TIME=$(date +%s%N 2>/dev/null || echo "0")
 RES_FILE=$(mktemp)
-HTTP_CODE=$(curl -s -o "${RES_FILE}" -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records" || echo "000")
+HTTP_CODE=$(curl -s -H "x-api-key: ${API_AUTH_TOKEN}" -o "${RES_FILE}" -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records" || echo "000")
 BODY=$(cat "${RES_FILE}" 2>/dev/null || true)
 rm -f "${RES_FILE}"
 END_TIME=$(date +%s%N 2>/dev/null || echo "0")
 DURATION=$(( (END_TIME - START_TIME) / 1000000 ))
 [[ "$DURATION" -le 0 ]] && DURATION=1
+
+# Snapshot pre-injection records state for invariance assertion (F-16)
+BASELINE_SNAPSHOT="${BODY}"
 
 if [[ "${HTTP_CODE}" == "200" ]] && echo "${BODY}" | grep -q '"records":\['; then
   record_result "SQLI-BASE" "Baseline record query (/api/records)" "PASS" "Endpoint functional; returned valid audit records" "${HTTP_CODE}" "${DURATION}"
@@ -136,7 +141,7 @@ assert_vector() {
   resp_file=$(mktemp)
 
   local code
-  code=$(curl -s -o "${resp_file}" -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records?${query_params}" || echo "000")
+  code=$(curl -s -H "x-api-key: ${API_AUTH_TOKEN}" -o "${resp_file}" -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records?${query_params}" || echo "000")
   local content
   content=$(cat "${resp_file}" 2>/dev/null || true)
   rm -f "${resp_file}"
@@ -179,7 +184,7 @@ assert_vector() {
   # Check 5: For stacked DROP query (SQLI-03), assert audit_logs table remains intact and functional
   if [[ "${test_id}" == "SQLI-03" ]]; then
     local verify_code
-    verify_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records?id=1" || echo "000")
+    verify_code=$(curl -s -H "x-api-key: ${API_AUTH_TOKEN}" -o /dev/null -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records?id=1" || echo "000")
     if [[ "${verify_code}" != "200" ]]; then
       record_result "${test_id}" "${test_name}" "FAIL" "Destructive DDL query dropped or damaged table: GET /api/records?id=1 returned HTTP ${verify_code}" "${code}" "${dur_ms}"
       return
@@ -232,6 +237,17 @@ assert_vector \
   "search=%27%20UNION%20SELECT%201,2,3,4,NOW()--" \
   "200" \
   "Prepared statement prevented union subquery execution; no unauthorized rows returned"
+
+# ------------------------------------------------------------------------------
+# Test 5: Post-Execution Database State Invariance Verification (F-16)
+# Expectation: Assert database audit_logs state is byte-identical pre and post injection
+# ------------------------------------------------------------------------------
+POST_SNAPSHOT=$(curl -s -H "x-api-key: ${API_AUTH_TOKEN}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records" || echo "")
+if [[ -n "${BASELINE_SNAPSHOT}" && "${BASELINE_SNAPSHOT}" == "${POST_SNAPSHOT}" ]]; then
+  record_result "SQLI-05" "Database State Invariance (Zero Data Modification)" "PASS" "Audit records verified byte-identical pre and post attack execution" "200" "1"
+else
+  record_result "SQLI-05" "Database State Invariance (Zero Data Modification)" "FAIL" "Database records were modified or corrupted during test run!" "500" "1"
+fi
 
 # ------------------------------------------------------------------------------
 # Export Machine-Readable JSON Report

@@ -249,10 +249,11 @@ HEALTH_BODY=$(echo "${HEALTH_RAW}" | sed '$d')
 HEALTH_CODE=$(echo "${HEALTH_RAW}" | tail -n 1)
 echo -e "  Health Response (HTTP ${HEALTH_CODE}): ${COLOR_YELLOW}${HEALTH_BODY}${COLOR_RESET}"
 
-if [[ "${HEALTH_CODE}" == "503" ]] || echo "${HEALTH_BODY}" | grep -qiE "degraded|down|offline"; then
-  log_success "Deep health correctly flagged degraded downstream service status."
+if [[ "${HEALTH_CODE}" == "503" ]] && echo "${HEALTH_BODY}" | grep -qiE "degraded|down|offline"; then
+  log_success "Deep health correctly flagged degraded downstream service status (HTTP 503)."
 else
-  echo -e "${COLOR_YELLOW}[WARN] Deep health check did not report degraded state during Redis outage.${COLOR_RESET}"
+  echo -e "${COLOR_RED}[FAIL] Deep health check did not report HTTP 503 degraded state during Redis outage (Observed: HTTP ${HEALTH_CODE})!${COLOR_RESET}"
+  CHAOS_FAILURES=$((CHAOS_FAILURES + 1))
 fi
 
 log_info "Restoring Redis cache tier (scaling back to ${ORIGINAL_REDIS_REPLICAS} replica(s))..."

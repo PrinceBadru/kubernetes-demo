@@ -91,7 +91,7 @@ echo -e "Attacker Objective: Bypass authorization or extract schema using SQL in
 echo -e "Target Endpoint: ${API_URL}/api/records"
 echo -e "Payload: ${BOLD}search=' OR '1'='1${COLOR_RESET}"
 
-SQL_RESPONSE=$(curl -s -w "\n%{http_code}" "${API_URL}/api/records?search=%27%20OR%20%271%27=%271" 2>/dev/null || echo "FAILED\n000")
+SQL_RESPONSE=$(curl -s -w "\n%{http_code}" -H "x-api-key: ${API_AUTH_TOKEN:-devsecops-demo-api-key}" "${API_URL}/api/records?search=%27%20OR%20%271%27=%271" 2>/dev/null || echo "FAILED\n000")
 HTTP_BODY=$(echo "${SQL_RESPONSE}" | sed '$d')
 HTTP_CODE=$(echo "${SQL_RESPONSE}" | tail -n 1)
 

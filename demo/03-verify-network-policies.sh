@@ -187,15 +187,18 @@ kubectl run "${ROGUE_POD}" \
     }
   }' >/dev/null 2>&1
 
-kubectl wait --namespace="${NAMESPACE}" --for=condition=ready "pod/${ROGUE_POD}" --timeout=30s >/dev/null 2>&1 || true
-
-# Attempt connection from rogue pod to postgres
-if kubectl exec -n "${NAMESPACE}" "${ROGUE_POD}" -- nc -z -w "${TIMEOUT_SEC}" postgres 5432 2>/dev/null; then
-  log_fail "CRITICAL SECURITY BREACH: Rogue pod connected to PostgreSQL on port 5432!"
-  record_result "3" "Rogue -> Postgres:5432" "DENY" "ALLOWED" "FAIL"
+if ! kubectl wait --namespace="${NAMESPACE}" --for=condition=ready "pod/${ROGUE_POD}" --timeout=30s >/dev/null 2>&1; then
+  log_warn "Rogue pod failed to reach Ready status; marking Test 3 INDETERMINATE."
+  record_result "3" "Rogue -> Postgres:5432" "DENY" "INDETERMINATE" "INDETERMINATE"
 else
-  log_blocked "Lateral movement blocked! Packets dropped by default-deny-all network policy."
-  record_result "3" "Rogue -> Postgres:5432" "DENY" "BLOCKED" "PASS"
+  # Attempt connection from rogue pod to postgres
+  if kubectl exec -n "${NAMESPACE}" "${ROGUE_POD}" -- nc -z -w "${TIMEOUT_SEC}" postgres 5432 2>/dev/null; then
+    log_fail "CRITICAL SECURITY BREACH: Rogue pod connected to PostgreSQL on port 5432!"
+    record_result "3" "Rogue -> Postgres:5432" "DENY" "ALLOWED" "FAIL"
+  else
+    log_blocked "Lateral movement blocked! Packets dropped by default-deny-all network policy."
+    record_result "3" "Rogue -> Postgres:5432" "DENY" "BLOCKED" "PASS"
+  fi
 fi
 echo ""
 
@@ -226,12 +229,17 @@ echo ""
 echo -e "${BOLD}Test 5: Unauthorized Access to Cache (Rogue Pod -> Redis on port 6379)${COLOR_RESET}"
 echo -e "DevSecOps Principle: Protect internal memory cache against unauthenticated access"
 
-if kubectl exec -n "${NAMESPACE}" "${ROGUE_POD}" -- nc -z -w "${TIMEOUT_SEC}" redis 6379 2>/dev/null; then
-  log_fail "SECURITY VULNERABILITY: Rogue pod reached Redis! Default-deny failed."
-  record_result "5" "Rogue -> Redis:6379" "DENY" "ALLOWED" "FAIL"
+if ! kubectl wait --namespace="${NAMESPACE}" --for=condition=ready "pod/${ROGUE_POD}" --timeout=5s >/dev/null 2>&1; then
+  log_warn "Rogue pod not ready; marking Test 5 INDETERMINATE."
+  record_result "5" "Rogue -> Redis:6379" "DENY" "INDETERMINATE" "INDETERMINATE"
 else
-  log_blocked "Unauthorized cache access blocked! NetworkPolicy dropped ingress packets."
-  record_result "5" "Rogue -> Redis:6379" "DENY" "BLOCKED" "PASS"
+  if kubectl exec -n "${NAMESPACE}" "${ROGUE_POD}" -- nc -z -w "${TIMEOUT_SEC}" redis 6379 2>/dev/null; then
+    log_fail "SECURITY VULNERABILITY: Rogue pod reached Redis! Default-deny failed."
+    record_result "5" "Rogue -> Redis:6379" "DENY" "ALLOWED" "FAIL"
+  else
+    log_blocked "Unauthorized cache access blocked! NetworkPolicy dropped ingress packets."
+    record_result "5" "Rogue -> Redis:6379" "DENY" "BLOCKED" "PASS"
+  fi
 fi
 echo ""
 

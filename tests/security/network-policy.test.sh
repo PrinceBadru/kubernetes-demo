@@ -44,6 +44,8 @@ log_warn() {
   echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} $1"
 }
 
+INDETERMINATE_COUNT=0
+
 test_result() {
   local test_id="$1"
   local test_name="$2"
@@ -56,6 +58,12 @@ test_result() {
     echo -e "${COLOR_GREEN}[PASS]${COLOR_RESET} [${test_id}] ${test_name}"
     if [[ -n "$details" ]]; then
       echo -e "       ${COLOR_CYAN}Details:${COLOR_RESET} ${details}"
+    fi
+  elif [[ "$status" == "INDETERMINATE" ]]; then
+    INDETERMINATE_COUNT=$((INDETERMINATE_COUNT + 1))
+    echo -e "${COLOR_YELLOW}[INDETERMINATE]${COLOR_RESET} [${test_id}] ${test_name}"
+    if [[ -n "$details" ]]; then
+      echo -e "       ${COLOR_YELLOW}Reason:${COLOR_RESET}  ${details}"
     fi
   else
     FAILED=$((FAILED + 1))
@@ -107,16 +115,39 @@ log_info "Discovered API Pod:      ${API_POD}"
 log_info "Discovered Redis Pod:    ${REDIS_POD:-none}"
 log_info "Discovered Postgres Pod: ${POSTGRES_POD:-none}"
 
-# Launch unauthorized test probe pod (without matching security labels)
+# Launch unauthorized test probe pod (with minimal non-root security context to satisfy PSA Restricted)
 log_info "Provisioning unauthorized test probe pod: ${UNAUTH_POD_NAME}..."
 kubectl run "${UNAUTH_POD_NAME}" \
   --namespace="${NAMESPACE}" \
   --image="busybox:1.36" \
   --labels="app.kubernetes.io/name=unauthorized-probe,app.kubernetes.io/part-of=external-tester" \
   --restart=Never \
-  --command -- sleep 3600 >/dev/null 2>&1
+  --overrides='{
+    "spec": {
+      "securityContext": {
+        "runAsNonRoot": true,
+        "runAsUser": 10003,
+        "runAsGroup": 10003,
+        "seccompProfile": { "type": "RuntimeDefault" }
+      },
+      "containers": [{
+        "name": "unauthorized-probe",
+        "image": "busybox:1.36",
+        "command": ["sleep", "3600"],
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": { "drop": ["ALL"] }
+        }
+      }]
+    }
+  }' >/dev/null 2>&1 || true
 
-kubectl wait --namespace="${NAMESPACE}" --for=condition=Ready "pod/${UNAUTH_POD_NAME}" --timeout=30s >/dev/null 2>&1
+UNAUTH_POD_READY=true
+if ! kubectl wait --namespace="${NAMESPACE}" --for=condition=Ready "pod/${UNAUTH_POD_NAME}" --timeout=30s >/dev/null 2>&1; then
+  UNAUTH_POD_READY=false
+  log_warn "Unauthorized probe pod failed to reach Ready status. Default-deny tests will evaluate INDETERMINATE."
+fi
 
 # Helper function to test TCP port reachability from a pod
 check_tcp_connection() {
@@ -153,7 +184,9 @@ fi
 # Test 3: Random unauthorized pod CANNOT reach PostgreSQL (Expected: BLOCKED)
 # Rationale: Zero-trust ingress rules must block traffic from any unselected pod.
 # ------------------------------------------------------------------------------
-if check_tcp_connection "${UNAUTH_POD_NAME}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"; then
+if [[ "${UNAUTH_POD_READY}" != "true" ]]; then
+  test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "INDETERMINATE" "Probe pod was not in Ready state; network policy assertion skipped"
+elif check_tcp_connection "${UNAUTH_POD_NAME}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"; then
   test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "FAIL" "SECURITY BREACH: Unauthorized pod successfully connected to PostgreSQL"
 else
   test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "PASS" "Connection timed out/rejected as expected by NetworkPolicy"
@@ -163,7 +196,9 @@ fi
 # Test 4: Random unauthorized pod CANNOT reach Redis (Expected: BLOCKED)
 # Rationale: Redis ingress must strictly restrict access to the API tier only.
 # ------------------------------------------------------------------------------
-if check_tcp_connection "${UNAUTH_POD_NAME}" "${REDIS_SVC}" "${REDIS_PORT}"; then
+if [[ "${UNAUTH_POD_READY}" != "true" ]]; then
+  test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "INDETERMINATE" "Probe pod was not in Ready state; network policy assertion skipped"
+elif check_tcp_connection "${UNAUTH_POD_NAME}" "${REDIS_SVC}" "${REDIS_PORT}"; then
   test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "FAIL" "SECURITY BREACH: Unauthorized pod successfully connected to Redis"
 else
   test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "PASS" "Connection timed out/rejected as expected by NetworkPolicy"
@@ -217,14 +252,18 @@ fi
 echo -e "\n${COLOR_CYAN}=================================================================${COLOR_RESET}"
 echo -e "${COLOR_CYAN} Network Policy Verification Summary${COLOR_RESET}"
 echo -e "${COLOR_CYAN}=================================================================${COLOR_RESET}"
-echo -e " Total Tests:  ${TOTAL}"
-echo -e " Passed Tests: ${COLOR_GREEN}${PASSED}${COLOR_RESET}"
-echo -e " Failed Tests: ${COLOR_RED}${FAILED}${COLOR_RESET}"
+echo -e " Total Tests:         ${TOTAL}"
+echo -e " Passed Tests:        ${COLOR_GREEN}${PASSED}${COLOR_RESET}"
+echo -e " Failed Tests:        ${COLOR_RED}${FAILED}${COLOR_RESET}"
+echo -e " Indeterminate Tests: ${COLOR_YELLOW}${INDETERMINATE_COUNT}${COLOR_RESET}"
 
-if [[ ${FAILED} -eq 0 ]]; then
-  echo -e "\n${COLOR_GREEN}✓ All network policy verification tests PASSED.${COLOR_RESET}"
-  exit 0
-else
+if [[ ${FAILED} -gt 0 ]]; then
   echo -e "\n${COLOR_RED}✗ Some network policy verification tests FAILED.${COLOR_RESET}"
   exit 1
+elif [[ ${INDETERMINATE_COUNT} -gt 0 ]]; then
+  echo -e "\n${COLOR_YELLOW}⚠ Some tests were INDETERMINATE due to test probe preconditions.${COLOR_RESET}"
+  exit 2
+else
+  echo -e "\n${COLOR_GREEN}✓ All network policy verification tests PASSED.${COLOR_RESET}"
+  exit 0
 fi

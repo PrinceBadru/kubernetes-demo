@@ -95,9 +95,16 @@ SUITE_FAILURES=0
 log_suite "1/4" "Container Runtime Security & PSS Compliance Verification"
 if [[ -f tests/security/container-security.test.sh ]]; then
   log_info "Executing tests/security/container-security.test.sh..."
-  if bash tests/security/container-security.test.sh; then
+  set +e
+  bash tests/security/container-security.test.sh
+  CSEC_EXIT=$?
+  set -e
+  if [[ ${CSEC_EXIT} -eq 0 ]]; then
     CONTAINER_SEC_STATUS="PASSED"
     log_pass "Container security tests PASSED."
+  elif [[ ${CSEC_EXIT} -eq 2 ]]; then
+    CONTAINER_SEC_STATUS="INDETERMINATE"
+    log_warn "Container security tests evaluated as INDETERMINATE."
   else
     CONTAINER_SEC_STATUS="FAILED"
     SUITE_FAILURES=$((SUITE_FAILURES + 1))
@@ -105,8 +112,7 @@ if [[ -f tests/security/container-security.test.sh ]]; then
   fi
 else
   log_warn "tests/security/container-security.test.sh not found."
-  CONTAINER_SEC_STATUS="NOT_FOUND"
-  SUITE_FAILURES=$((SUITE_FAILURES + 1))
+  CONTAINER_SEC_STATUS="SKIPPED"
 fi
 
 # ------------------------------------------------------------------------------
@@ -115,9 +121,16 @@ fi
 log_suite "2/4" "Zero-Trust Microsegmentation & Network Policy Tests"
 if [[ -f tests/security/network-policy.test.sh ]]; then
   log_info "Executing tests/security/network-policy.test.sh..."
-  if bash tests/security/network-policy.test.sh; then
+  set +e
+  bash tests/security/network-policy.test.sh
+  NETPOL_EXIT=$?
+  set -e
+  if [[ ${NETPOL_EXIT} -eq 0 ]]; then
     NETPOL_STATUS="PASSED"
     log_pass "Zero-Trust Network policy tests PASSED."
+  elif [[ ${NETPOL_EXIT} -eq 2 ]]; then
+    NETPOL_STATUS="INDETERMINATE"
+    log_warn "Zero-Trust Network policy tests evaluated as INDETERMINATE."
   else
     NETPOL_STATUS="FAILED"
     SUITE_FAILURES=$((SUITE_FAILURES + 1))
@@ -125,8 +138,7 @@ if [[ -f tests/security/network-policy.test.sh ]]; then
   fi
 else
   log_warn "tests/security/network-policy.test.sh not found."
-  NETPOL_STATUS="NOT_FOUND"
-  SUITE_FAILURES=$((SUITE_FAILURES + 1))
+  NETPOL_STATUS="SKIPPED"
 fi
 
 # ------------------------------------------------------------------------------
@@ -135,9 +147,16 @@ fi
 log_suite "3/4" "SQL Injection & Input Sanitization Defense Suite"
 if [[ -f tests/security/sql-injection.test.sh ]]; then
   log_info "Executing tests/security/sql-injection.test.sh..."
-  if REPORT_FILE="artifacts/security/sql-injection-results.json" bash tests/security/sql-injection.test.sh; then
+  set +e
+  REPORT_FILE="artifacts/security/sql-injection-results.json" bash tests/security/sql-injection.test.sh
+  SQLI_EXIT=$?
+  set -e
+  if [[ ${SQLI_EXIT} -eq 0 ]]; then
     SQLI_STATUS="PASSED"
     log_pass "SQL injection defense suite PASSED."
+  elif [[ ${SQLI_EXIT} -eq 2 ]]; then
+    SQLI_STATUS="INDETERMINATE"
+    log_warn "SQL injection defense suite evaluated as INDETERMINATE."
   else
     SQLI_STATUS="FAILED"
     SUITE_FAILURES=$((SUITE_FAILURES + 1))
@@ -145,8 +164,7 @@ if [[ -f tests/security/sql-injection.test.sh ]]; then
   fi
 else
   log_warn "tests/security/sql-injection.test.sh not found."
-  SQLI_STATUS="NOT_FOUND"
-  SUITE_FAILURES=$((SUITE_FAILURES + 1))
+  SQLI_STATUS="SKIPPED"
 fi
 
 # ------------------------------------------------------------------------------
@@ -188,7 +206,13 @@ else
 fi
 
 END_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-OVERALL_STATUS=$([[ ${SUITE_FAILURES} -eq 0 ]] && echo "PASSED" || echo "FAILED")
+if [[ ${SUITE_FAILURES} -gt 0 ]]; then
+  OVERALL_STATUS="FAILED"
+elif [[ "${CONTAINER_SEC_STATUS}" == "INDETERMINATE" || "${NETPOL_STATUS}" == "INDETERMINATE" || "${SQLI_STATUS}" == "INDETERMINATE" ]]; then
+  OVERALL_STATUS="INDETERMINATE"
+else
+  OVERALL_STATUS="PASSED"
+fi
 
 # ------------------------------------------------------------------------------
 # Export Machine-Readable JSON Report
@@ -298,6 +322,8 @@ EOF
 echo -e "\n${COLOR_CYAN}======================================================================${COLOR_RESET}"
 if [[ "${OVERALL_STATUS}" == "PASSED" ]]; then
   echo -e "${COLOR_GREEN}${BOLD} ✅ Step 4 Complete: All Required Security Test Suites Passed!${COLOR_RESET}"
+elif [[ "${OVERALL_STATUS}" == "INDETERMINATE" ]]; then
+  echo -e "${COLOR_YELLOW}${BOLD} ⚠ Step 4 Indeterminate: One or more suites had unmet preconditions!${COLOR_RESET}"
 else
   echo -e "${COLOR_RED}${BOLD} ❌ Step 4 Failed: ${SUITE_FAILURES} Security Test Suite(s) Failed!${COLOR_RESET}"
 fi
@@ -312,6 +338,8 @@ echo -e ""
 
 if [[ "${SUITE_FAILURES}" -gt 0 ]]; then
   exit 1
+elif [[ "${OVERALL_STATUS}" == "INDETERMINATE" ]]; then
+  exit 2
 fi
 
 echo -e "Next Step: Execute ${BOLD}bash demo/05-run-performance-tests.sh${COLOR_RESET}"

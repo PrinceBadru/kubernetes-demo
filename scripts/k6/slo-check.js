@@ -43,8 +43,20 @@ export const options = {
     // Standard HTTP metrics strictly mirroring real-world SLA commitments
     http_req_duration: ['p(99)<500', 'p(95)<300', 'avg<150'],
     http_req_failed: ['rate<0.001'], // Maximum 0.1% failures allowed
+    // DevSecOps Assertion Gate: Over 99.9% of checks must pass (F-45)
+    checks: ['rate>0.999'],
   },
 };
+
+export function setup() {
+  // Fail fast if target endpoint is unreachable (F-62)
+  const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
+  if (probe.status !== 200) {
+    throw new Error(
+      `[k6] BASE_URL "${BASE_URL}" failed health probe (HTTP ${probe.status}). Aborting test execution.`,
+    );
+  }
+}
 
 export default function () {
   const headers = {

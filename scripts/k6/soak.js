@@ -18,8 +18,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
-
 export const options = {
   stages: [
     { duration: '30s', target: 10 }, // Warm-up ramp to 10 VUs
@@ -32,8 +30,23 @@ export const options = {
     http_req_duration: ['p(95)<1000'],
     // Error rate must remain negligible (< 1%) throughout the soak
     http_req_failed: ['rate<0.01'],
+    // DevSecOps Assertion Gate: Over 99% of checks must pass (F-45)
+    checks: ['rate>0.99'],
   },
 };
+
+const BASE_URL =
+  __ENV.BASE_URL && __ENV.BASE_URL.trim() !== '' ? __ENV.BASE_URL.trim() : 'http://localhost:3000';
+
+export function setup() {
+  // Fail fast if target endpoint is unreachable (F-62)
+  const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
+  if (probe.status !== 200) {
+    throw new Error(
+      `[k6] BASE_URL "${BASE_URL}" failed health probe (HTTP ${probe.status}). Aborting test execution.`,
+    );
+  }
+}
 
 export default function () {
   const headers = {
