@@ -95,15 +95,25 @@ else
   echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} Service 'api' not found in namespace '${APP_NAMESPACE}'."
 fi
 
-# Allow tunnels a brief moment to bind and verify
-sleep 2
+# Actively poll port-forward endpoints to verify connectivity before declaring ready (F-48)
+echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Verifying tunnel connectivity..."
+TUNNELS_READY=false
+for attempt in {1..10}; do
+  if curl -s --max-time 1 http://localhost:3000/healthz &>/dev/null || \
+     curl -s --max-time 1 http://localhost:9090/-/ready &>/dev/null || \
+     curl -s --max-time 1 http://localhost:3001/api/health &>/dev/null; then
+    TUNNELS_READY=true
+    break
+  fi
+  sleep 1
+done
 
 if [[ ${#PIDS[@]} -eq 0 ]]; then
   echo -e "\n${COLOR_RED}[FAIL] No port-forward tunnels could be established. Ensure workloads are deployed.${COLOR_RESET}"
   exit 1
 fi
 
-GRAFANA_PW=$(kubectl get secret grafana-secrets -n "${MONITORING_NAMESPACE}" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 --decode 2>/dev/null || echo "(see k8s/monitoring/grafana-secrets.yaml)")
+GRAFANA_PW=$(kubectl get secret grafana-admin-credentials -n "${MONITORING_NAMESPACE}" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 --decode 2>/dev/null || kubectl get secret grafana-secrets -n "${MONITORING_NAMESPACE}" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 --decode 2>/dev/null || echo "(see k8s/monitoring/grafana-secrets.yaml)")
 
 echo ""
 echo -e "${COLOR_GREEN}${BOLD}======================================================================${COLOR_RESET}"

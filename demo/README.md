@@ -177,7 +177,7 @@ bash demo/08-show-dashboards.sh
 
 - **What it does:**
   - Establishes persistent background port-forwarding tunnels:
-    - **Grafana:** `http://localhost:3001` (admin / admin)
+    - **Grafana:** `http://localhost:3001` (User: `admin`, Password dynamically generated in `k8s/monitoring/grafana-secrets.yaml`)
     - **Prometheus:** `http://localhost:9090`
     - **API Health:** `http://localhost:3000/api/health`
     - **API Metrics:** `http://localhost:3000/metrics`

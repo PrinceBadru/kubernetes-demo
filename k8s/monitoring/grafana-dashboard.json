@@ -756,7 +756,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",container=\"devsecops-demo-api\"}[5m])) by (pod) or sum(rate(process_cpu_seconds_total{namespace=~\"$namespace\"}[5m])) by (pod)",
+          "expr": "sum(rate(process_cpu_seconds_total{namespace=~\"$namespace\"}[5m])) by (pod)",
           "legendFormat": "{{pod}}",
           "range": true,
           "refId": "A"
@@ -821,7 +821,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\",container=\"devsecops-demo-api\"}) by (pod) or sum(process_resident_memory_bytes{namespace=~\"$namespace\"}) by (pod)",
+          "expr": "sum(process_resident_memory_bytes{namespace=~\"$namespace\"}) by (pod)",
           "legendFormat": "{{pod}}",
           "range": true,
           "refId": "A"

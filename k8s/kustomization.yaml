@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# -----------------------------------------------------------------------------
+# DevSecOps Demo: Root Declarative Kustomization Architecture (F-67)
+# Unifies application namespace, security governance controls, 3-tier
+# workloads, and observability infrastructure into a single declarative deployment unit.
+# -----------------------------------------------------------------------------
+resources:
+  - namespace.yaml
+  - security
+  - base
+  - monitoring

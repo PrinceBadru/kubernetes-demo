@@ -245,8 +245,8 @@ metadata:
 data:
   prometheus.yml: |
     global:
-      scrape_interval: 5s
-      evaluation_interval: 5s
+      scrape_interval: 15s
+      evaluation_interval: 15s
     scrape_configs:
       - job_name: 'devsecops-demo-api'
         metrics_path: '/metrics'
@@ -282,7 +282,7 @@ spec:
     spec:
       containers:
         - name: prometheus
-          image: prom/prometheus:v2.45.0
+          image: prom/prometheus:v2.48.0@sha256:b440bc0e8aa5bab44a782952c09516b6a50f9d7b2325c1ffafac7bc833298e2e
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
@@ -335,7 +335,7 @@ spec:
     spec:
       containers:
         - name: grafana
-          image: grafana/grafana:10.0.3
+          image: grafana/grafana:10.2.0@sha256:1ee0c54286b8ca09a3dd1419ff8653e7780a148a006ac088544203bb0affe550
           ports:
             - containerPort: 3000
               name: web
@@ -343,7 +343,11 @@ spec:
             - name: GF_SECURITY_ADMIN_USER
               value: "admin"
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "admin"
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin-credentials
+                  key: admin-password
+                  optional: true
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
 ---
@@ -408,7 +412,8 @@ echo -e "     -> Test: curl http://localhost:3000/api/status"
 echo -e ""
 echo -e "  📊 Observability Dashboards:"
 echo -e "     Run: ${BOLD}bash demo/08-show-dashboards.sh${COLOR_RESET}"
-echo -e "     - Grafana:    http://localhost:3001 (User: admin / Pass: admin)"
+GRAFANA_PW=$(kubectl get secret grafana-admin-credentials -n "${MONITORING_NAMESPACE:-monitoring}" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 --decode 2>/dev/null || echo "(see k8s/monitoring/grafana-secrets.yaml)")
+echo -e "     - Grafana:    http://localhost:3001 (User: admin / Pass: ${GRAFANA_PW})"
 echo -e "     - Prometheus: http://localhost:9090"
 echo -e ""
 echo -e "Next Step: Execute ${BOLD}bash demo/03-verify-network-policies.sh${COLOR_RESET}"

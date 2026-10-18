@@ -155,9 +155,15 @@ spec:
           emptyDir: {}
 
   # ---------------------------------------------------------------------------
-  # DevSecOps Principle: Data Durability & Persistent Storage Management
+  # DevSecOps Principle: Data Durability & Persistent Storage Management (F-40, F-44)
   # volumeClaimTemplates dynamically provisions persistent volumes for state retention
-  # across pod restarts, evictions, or rolling node upgrades.
+  # across pod restarts, evictions, or rolling node upgrades:
+  # - StorageClass: Omitting storageClassName relies on the cluster's default StorageClass
+  #   (e.g., 'standard' in KinD/minikube, 'gp3' in AWS EKS, 'pd-balanced' in GCP GKE).
+  #   If the target cluster does not have a default StorageClass, set storageClassName explicitly.
+  # - Access Mode: ReadWriteOnce (RWO) guarantees dedicated single-node block volume mount,
+  #   preventing split-brain corruption.
+  # - Reclaim Policy: Cluster default (typically Delete in dev/demo, Retain in production).
   # ---------------------------------------------------------------------------
   volumeClaimTemplates:
     - metadata:

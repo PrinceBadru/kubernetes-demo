@@ -95,11 +95,14 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
-    # Rule 2: Allow metrics scraping from Prometheus in the monitoring namespace on port 3000
+    # Rule 2: Allow metrics scraping strictly from Prometheus pods in the monitoring namespace on port 3000
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 3000

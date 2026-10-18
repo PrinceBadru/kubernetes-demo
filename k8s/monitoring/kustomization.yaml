@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# -----------------------------------------------------------------------------
+# DevSecOps Principle: Declarative Observability Baseline (SRE Golden Signals)
+# Provisions the monitoring namespace, network segmentation, Prometheus scraper,
+# and Grafana dashboard infrastructure.
+# -----------------------------------------------------------------------------
+namespace: monitoring
+
+resources:
+  - namespace.yaml
+  - network-policies.yaml
+  - prometheus-config.yaml
+  - prometheus-deployment.yaml
+  - grafana-deployment.yaml
