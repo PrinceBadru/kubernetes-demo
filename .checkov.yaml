@@ -1,0 +1,52 @@
+# ==============================================================================
+# Checkov IaC Security Scanning Configuration
+# Framework: NIST SP 800-53, CIS Kubernetes Benchmark, NSA/CISA Hardening
+# ==============================================================================
+# Overview:
+# Checkov audits Kubernetes YAML manifests against CIS benchmarks and security standards.
+# The following checks are explicitly skipped with documented technical rationale:
+#
+# CKV_K8S_15: "Image Pull Policy should be Always"
+#   - In local dev/demo clusters (KinD/Minikube), imagePullPolicy: IfNotPresent is
+#     mandatory to allow nodes to consume sideloaded local container images without
+#     attempting to pull from external registries.
+#
+# CKV_K8S_43: "Image should use digest"
+#   - Image digests (sha256) are dynamically resolved and stamped at release/deploy time
+#     via Kustomize in CI (deploy.yml). Static Git base manifests use version tags.
+#
+# CKV_K8S_40: "Containers should run as a high UID to avoid host conflict"
+#   - Official upstream community images (PostgreSQL: UID 999, Redis: UID 999, Grafana: UID 472)
+#     package dedicated non-root service accounts under 10000.
+#
+# CKV_K8S_35: "Prefer using secrets as files over secrets as environment variables"
+#   - Database and cache client libraries in Express.js consume connection URIs and
+#     passwords via standard environment variable mappings (DATABASE_URL, POSTGRES_PASSWORD).
+#
+# CKV_K8S_38: "Ensure that Service Account Tokens are only mounted where necessary"
+#   - Prometheus requires Kubernetes API bearer tokens mounted to perform dynamic
+#     Pod and Service discovery across the cluster.
+#
+# CKV_K8S_21: "The default namespace should not be used"
+#   - Cluster-scoped resources (Namespace, ClusterRole, ClusterRoleBinding) do not
+#     belong to a namespace and trigger false positives on namespace presence checks.
+#
+# CKV_K8S_9: "Readiness Probe Should be Configured"
+#   - Monitoring components (Prometheus server, Grafana) use standard startup/liveness
+#     probes rather than bespoke readiness probes.
+# ==============================================================================
+
+framework:
+  - kubernetes
+
+directory:
+  - k8s
+
+skip-check:
+  - CKV_K8S_15
+  - CKV_K8S_43
+  - CKV_K8S_40
+  - CKV_K8S_35
+  - CKV_K8S_38
+  - CKV_K8S_21
+  - CKV_K8S_9
