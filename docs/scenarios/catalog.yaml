@@ -1,6 +1,6 @@
 version: '1.0.0'
 description: 'Declarative, version-controlled catalog of all DevSecOps demonstration scenarios and automated security test contracts.'
-schema: './schema.json'
+$schema: './schema.json'
 
 scenarios:
   - id: 'SCN-DEPLOY-01'
@@ -157,7 +157,7 @@ scenarios:
     learning_goal: 'Prove that prepared statements ($1, $2) neutralize tautology, stacked DDL, and UNION payloads.'
     control_type: 'live_enforcement'
     prerequisites:
-      cluster: false
+      cluster: true
       namespace: 'devsecops-demo'
       workloads: ['api', 'postgres']
     execution:
@@ -170,7 +170,7 @@ scenarios:
     evidence:
       metric: 'http_requests_total'
       log_pattern: 'Parameterized query treated payload as literal text'
-      command: "curl -s http://localhost:3000/api/records?search='%20OR%20'1'='1"
+      command: "curl -s -H 'x-api-key: devsecops-demo-api-key' 'http://localhost:3000/api/records?search=%27%20OR%20%271%27=%271'"
     source_paths:
       manifests:
         - 'k8s/base/postgres-statefulset.yaml'
@@ -201,7 +201,7 @@ scenarios:
       after: 'Liveness /healthz remains HTTP 200 (pod alive); deep check /api/health flags HTTP 503 degraded.'
     evidence:
       metric: "health_check_status{service='redis'}"
-      log_pattern: 'HTTP 200 (Liveness) & HTTP 503 (Deep Health)'
+      log_pattern: 'Liveness probe stayed 200 OK during downstream dependency outage'
       command: "curl -s -w '%{http_code}' http://localhost:3000/healthz"
     source_paths:
       manifests:
@@ -231,7 +231,7 @@ scenarios:
       during: 'Active pod is deleted via kubectl delete pod.'
       after: 'ReplicaSet immediately spins up a replacement pod; traffic continues without dropping requests.'
     evidence:
-      log_pattern: 'ReplicaSet replacement pod scheduled'
+      log_pattern: 'Zero-downtime preserved'
       command: 'kubectl get pods -n devsecops-demo -l app.kubernetes.io/name=api'
     source_paths:
       manifests:
@@ -260,6 +260,7 @@ scenarios:
       after: 'HPA triggers scale-out up to 5 replicas within policy bounds.'
     evidence:
       metric: 'container_cpu_usage_seconds_total'
+      log_pattern: 'Elastic scaling pipeline evaluated successfully'
       command: 'kubectl get hpa api -n devsecops-demo'
     source_paths:
       manifests:
@@ -307,7 +308,7 @@ scenarios:
     learning_goal: 'Identify OWASP Top 10 vulnerabilities, misconfigured HTTP security headers, and information disclosure through automated DAST baseline scanning.'
     control_type: 'automated_dast'
     prerequisites:
-      cluster: false
+      cluster: true
       namespace: 'devsecops-demo'
       workloads: ['api']
     execution:

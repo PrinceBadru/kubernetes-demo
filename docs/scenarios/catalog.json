@@ -184,7 +184,7 @@
       "learning_goal": "Prove that prepared statements ($1, $2) neutralize tautology, stacked DDL, and UNION payloads.",
       "control_type": "live_enforcement",
       "prerequisites": {
-        "cluster": false,
+        "cluster": true,
         "namespace": "devsecops-demo",
         "workloads": ["api", "postgres"]
       },
@@ -200,7 +200,7 @@
       "evidence": {
         "metric": "http_requests_total",
         "log_pattern": "Parameterized query treated payload as literal text",
-        "command": "curl -s http://localhost:3000/api/records?search='%20OR%20'1'='1"
+        "command": "curl -s -H 'x-api-key: devsecops-demo-api-key' 'http://localhost:3000/api/records?search=%27%20OR%20%271%27=%271'"
       },
       "source_paths": {
         "manifests": ["k8s/base/postgres-statefulset.yaml", "src/db/init.sql"],
@@ -233,7 +233,7 @@
       },
       "evidence": {
         "metric": "health_check_status{service='redis'}",
-        "log_pattern": "HTTP 200 (Liveness) & HTTP 503 (Deep Health)",
+        "log_pattern": "Liveness probe stayed 200 OK during downstream dependency outage",
         "command": "curl -s -w '%{http_code}' http://localhost:3000/healthz"
       },
       "source_paths": {
@@ -267,7 +267,7 @@
         "after": "ReplicaSet immediately spins up a replacement pod; traffic continues without dropping requests."
       },
       "evidence": {
-        "log_pattern": "ReplicaSet replacement pod scheduled",
+        "log_pattern": "Zero-downtime preserved",
         "command": "kubectl get pods -n devsecops-demo -l app.kubernetes.io/name=api"
       },
       "source_paths": {
@@ -301,6 +301,7 @@
       },
       "evidence": {
         "metric": "container_cpu_usage_seconds_total",
+        "log_pattern": "Elastic scaling pipeline evaluated successfully",
         "command": "kubectl get hpa api -n devsecops-demo"
       },
       "source_paths": {
@@ -356,7 +357,7 @@
       "learning_goal": "Identify OWASP Top 10 vulnerabilities, misconfigured HTTP security headers, and information disclosure through automated DAST baseline scanning.",
       "control_type": "automated_dast",
       "prerequisites": {
-        "cluster": false,
+        "cluster": true,
         "namespace": "devsecops-demo",
         "workloads": ["api"]
       },

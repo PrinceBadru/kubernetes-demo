@@ -57,7 +57,7 @@ The system implements a hardened **3-tier cloud-native architecture**:
    - **Responsibility:** Ingress TLS termination, centralized host routing (`devsecops-demo.local`), request payload capping (1MB) to prevent buffer-exhaustion attacks, and per-IP rate limiting (10 requests/second) mitigating Layer 7 volumetric Denial of Service (DoS).
 
 2. **Application Tier (`devsecops-demo-api`):**
-   - **Component:** Node.js 18 LTS / Express.js REST API.
+   - **Component:** Node.js 20 LTS / Express.js REST API.
    - **Responsibility:** Request routing, input sanitization, parameterized SQL querying, caching orchestration, structured audit logging, Prometheus telemetry generation, and Kubernetes health probing.
    - **Resilience:** Minimum 2 replicas with pod anti-affinity, scaling to 5 replicas via Horizontal Pod Autoscaler based on CPU utilization (>70%).
 
@@ -75,7 +75,7 @@ The system implements a hardened **3-tier cloud-native architecture**:
 
 | Layer / Concern         | Technology                  | Version       | Rationale                                                                                         |
 | :---------------------- | :-------------------------- | :------------ | :------------------------------------------------------------------------------------------------ |
-| **Language Runtime**    | Node.js (Alpine Base)       | 18 LTS        | Enterprise long-term support, asynchronous event-driven I/O, minimal attack surface               |
+| **Language Runtime**    | Node.js (Alpine Base)       | 20 LTS        | Enterprise long-term support, asynchronous event-driven I/O, minimal attack surface               |
 | **Framework**           | Express.js                  | 5.x / 4.x     | Minimalist HTTP routing with robust middleware pipeline (headers, rate limiting, metrics)         |
 | **Database**            | PostgreSQL                  | 15-alpine     | ACID compliance, prepared statement parameterization, lightweight Alpine container                |
 | **Cache Store**         | Redis                       | 7-alpine      | Sub-millisecond latency caching layer, non-root Alpine container footprint                        |

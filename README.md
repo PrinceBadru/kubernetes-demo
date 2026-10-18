@@ -131,7 +131,7 @@ kubernetes-demo/
 │       ├── service-account.yaml         # Dedicated ServiceAccount (token automount disabled)
 │       └── resource-quotas.yaml         # Namespace ResourceQuota & LimitRange
 │
-├── src/                                 # Express.js Application Source (Node.js 18 LTS)
+├── src/                                 # Express.js Application Source (Node.js 20 LTS)
 │   ├── db.js                            # PostgreSQL connection pool with prepared statements
 │   ├── cache.js                         # Redis client connection management
 │   ├── health.js                        # Deep dependency health evaluation module
@@ -146,7 +146,10 @@ kubernetes-demo/
 ├── scripts/k6/                          # Performance & Load Test Suites
 │   ├── smoke.js                         # Baseline smoke test (1 VU)
 │   ├── load.js                          # Steady-state load test (25 VUs)
-│   └── stress.js                        # HPA elasticity stress test (150 VUs)
+│   ├── stress.js                        # HPA elasticity stress test (150 VUs)
+│   ├── soak.js                          # Endurance soak stability test (10 VUs)
+│   ├── spike.js                         # Traffic surge recovery test (100 VUs)
+│   └── slo-check.js                     # SLO error-budget and percentile evaluation
 │
 ├── docs/                                # Technical Architecture & Decision Records
 │   ├── PROJECT_CONTEXT.md               # Context, scope, and threat model
@@ -186,7 +189,7 @@ This repository is an **educational reference implementation and runnable DevSec
 
 ### What is Implemented & Verified
 
-- **Hardened Application Runtime:** Express.js API on Node 18 LTS running with non-root UID 1001, immutable read-only root filesystem, stripped Linux kernel capabilities, and OWASP security headers.
+- **Hardened Application Runtime:** Express.js API on Node 20 LTS running with non-root UID 1001, immutable read-only root filesystem, stripped Linux kernel capabilities, and OWASP security headers.
 - **SQL Injection Defense:** Real database-backed endpoint at `GET /api/records` using parameterized queries (`$1`, `$2`), strict type validation, and seed data, verified by automated tests asserting HTTP 200/400 and zero data leaks.
 - **Zero-Trust Network Policies:** Declarative default-deny ingress and egress policies with explicit pod selector whitelisting, preventing lateral pod-to-pod pivoting.
 - **Decoupled SRE Health Probes:** Separation of shallow liveness (`/healthz`) from deep dependency checking (`/api/health`) to prevent cascading crash loops.

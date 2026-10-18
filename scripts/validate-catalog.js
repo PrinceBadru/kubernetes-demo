@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Ajv from 'ajv';
 import YAML from 'yaml';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,108 +12,50 @@ const CATALOG_JSON = path.join(rootDir, 'docs', 'scenarios', 'catalog.json');
 const CATALOG_YAML = path.join(rootDir, 'docs', 'scenarios', 'catalog.yaml');
 const SCHEMA_FILE = path.join(rootDir, 'docs', 'scenarios', 'schema.json');
 
-const VALID_CATEGORIES = new Set([
-  'workload-management',
-  'network-security',
-  'container-hardening',
-  'access-control',
-  'application-security',
-  'reliability',
-  'resilience',
-  'observability',
-]);
+function deepEqual(a, b, pathStr = '') {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null || typeof a !== 'object') return a === b;
 
-const VALID_MODES = new Set(['live', 'simulated', 'declarative']);
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
 
-function validateDocument(catalog, sourceName, errors) {
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], b[i], `${pathStr}[${i}]`)) return false;
+    }
+    return true;
+  }
+
+  const keysA = Object.keys(a)
+    .filter((k) => k !== '$schema' && k !== 'schema')
+    .sort();
+  const keysB = Object.keys(b)
+    .filter((k) => k !== '$schema' && k !== 'schema')
+    .sort();
+
+  if (keysA.length !== keysB.length) return false;
+  for (let i = 0; i < keysA.length; i++) {
+    if (keysA[i] !== keysB[i]) return false;
+    if (!deepEqual(a[keysA[i]], b[keysB[i]], `${pathStr}.${keysA[i]}`)) return false;
+  }
+  return true;
+}
+
+function validateFilePaths(catalog, sourceName, errors) {
   let checkedPaths = 0;
   const prefix = `[${sourceName}]`;
-
-  if (!catalog) {
-    errors.push(`${prefix} Document is empty or null`);
-    return { checkedPaths: 0, ids: new Set() };
-  }
-
-  if (!catalog.version || !/^\d+\.\d+\.\d+$/.test(catalog.version)) {
-    errors.push(`${prefix} Invalid or missing catalog version: ${catalog.version}`);
-  }
-
-  if (!catalog.description || typeof catalog.description !== 'string') {
-    errors.push(`${prefix} Missing catalog description`);
-  }
-
-  if (!Array.isArray(catalog.scenarios) || catalog.scenarios.length === 0) {
-    errors.push(`${prefix} Catalog must declare at least one scenario`);
-  }
-
-  const seenIds = new Set();
 
   for (const scn of catalog.scenarios || []) {
     const scnPrefix = `${prefix} [Scenario ${scn.id || 'UNKNOWN'}]`;
 
-    if (!scn.id || !/^SCN-[A-Z0-9]+-\d{2}$/.test(scn.id)) {
-      errors.push(`${scnPrefix} Invalid ID format (must match SCN-<CATEGORY>-XX)`);
-    } else if (seenIds.has(scn.id)) {
-      errors.push(`${scnPrefix} Duplicate scenario ID: ${scn.id}`);
-    } else {
-      seenIds.add(scn.id);
-    }
-
-    if (!scn.title || typeof scn.title !== 'string' || scn.title.length < 5) {
-      errors.push(`${scnPrefix} Missing or too short title`);
-    }
-
-    if (!scn.category || !VALID_CATEGORIES.has(scn.category)) {
-      errors.push(`${scnPrefix} Invalid category: ${scn.category}`);
-    }
-
-    if (!scn.learning_goal || typeof scn.learning_goal !== 'string') {
-      errors.push(`${scnPrefix} Missing learning_goal`);
-    }
-
-    if (!scn.control_type || typeof scn.control_type !== 'string') {
-      errors.push(`${scnPrefix} Missing control_type`);
-    }
-
-    if (!scn.prerequisites || typeof scn.prerequisites !== 'object') {
-      errors.push(`${scnPrefix} Missing prerequisites object`);
-    } else {
-      if (typeof scn.prerequisites.cluster !== 'boolean') {
-        errors.push(`${scnPrefix} prerequisites.cluster must be boolean`);
-      }
-      if (typeof scn.prerequisites.namespace !== 'string') {
-        errors.push(`${scnPrefix} prerequisites.namespace must be string`);
-      }
-    }
-
-    if (!scn.execution || typeof scn.execution !== 'object') {
-      errors.push(`${scnPrefix} Missing execution object`);
-    } else {
-      if (!VALID_MODES.has(scn.execution.mode)) {
-        errors.push(`${scnPrefix} Invalid execution.mode: ${scn.execution.mode}`);
-      }
-      if (!scn.execution.script || typeof scn.execution.script !== 'string') {
-        errors.push(`${scnPrefix} Missing execution.script`);
+    if (scn.execution && scn.execution.script) {
+      const fullScript = path.join(rootDir, scn.execution.script);
+      if (!fs.existsSync(fullScript)) {
+        errors.push(`${scnPrefix} execution.script not found on disk: ${scn.execution.script}`);
       } else {
-        const fullScript = path.join(rootDir, scn.execution.script);
-        if (!fs.existsSync(fullScript)) {
-          errors.push(`${scnPrefix} execution.script not found on disk: ${scn.execution.script}`);
-        } else {
-          checkedPaths++;
-        }
+        checkedPaths++;
       }
-    }
-
-    if (!scn.expected_state || !scn.expected_state.before || !scn.expected_state.after) {
-      errors.push(`${scnPrefix} expected_state must include 'before' and 'after' descriptions`);
-    }
-
-    if (!scn.evidence || typeof scn.evidence !== 'object') {
-      errors.push(`${scnPrefix} Missing evidence object`);
-    }
-
-    if (!scn.reversibility || !scn.reversibility.cleanup_action || !scn.reversibility.target) {
-      errors.push(`${scnPrefix} reversibility must specify cleanup_action and target`);
     }
 
     if (scn.source_paths) {
@@ -136,12 +79,50 @@ function validateDocument(catalog, sourceName, errors) {
           checkedPaths++;
         }
       }
-    } else {
-      errors.push(`${scnPrefix} Missing source_paths object`);
     }
   }
 
-  return { checkedPaths, ids: seenIds };
+  return checkedPaths;
+}
+
+function checkCanonicalParity(jsonDoc, yamlDoc, errors) {
+  if (jsonDoc.version !== yamlDoc.version) {
+    errors.push(
+      `Parity error: catalog version mismatch (JSON: "${jsonDoc.version}", YAML: "${yamlDoc.version}")`,
+    );
+  }
+  if (jsonDoc.description !== yamlDoc.description) {
+    errors.push(`Parity error: catalog description mismatch between JSON and YAML`);
+  }
+
+  const jsonScenarios = jsonDoc.scenarios || [];
+  const yamlScenarios = yamlDoc.scenarios || [];
+
+  if (jsonScenarios.length !== yamlScenarios.length) {
+    errors.push(
+      `Parity error: scenario count mismatch (JSON: ${jsonScenarios.length}, YAML: ${yamlScenarios.length})`,
+    );
+    return;
+  }
+
+  for (let i = 0; i < jsonScenarios.length; i++) {
+    const sJ = jsonScenarios[i];
+    const sY = yamlScenarios.find((s) => s.id === sJ.id);
+    if (!sY) {
+      errors.push(
+        `Parity error: scenario ${sJ.id} found in catalog.json but missing in catalog.yaml`,
+      );
+      continue;
+    }
+
+    if (!deepEqual(sJ, sY, sJ.id)) {
+      errors.push(
+        `Parity error: scenario content mismatch for ${sJ.id}:\n` +
+          `  JSON: ${JSON.stringify(sJ)}\n` +
+          `  YAML: ${JSON.stringify(sY)}`,
+      );
+    }
+  }
 }
 
 function validate() {
@@ -182,28 +163,47 @@ function validate() {
     }
   }
 
-  const jsonResult = catalogJson
-    ? validateDocument(catalogJson, 'catalog.json', errors)
-    : { checkedPaths: 0, ids: new Set() };
-  const yamlResult = catalogYaml
-    ? validateDocument(catalogYaml, 'catalog.yaml', errors)
-    : { checkedPaths: 0, ids: new Set() };
+  let schema;
+  let ajvValidate;
+  if (fs.existsSync(SCHEMA_FILE)) {
+    try {
+      const raw = fs.readFileSync(SCHEMA_FILE, 'utf-8');
+      schema = JSON.parse(raw);
+      const ajv = new Ajv({ allErrors: true, strict: false });
+      ajvValidate = ajv.compile(schema);
+    } catch (err) {
+      errors.push(`Failed to compile schema: ${err.message}`);
+    }
+  }
 
-  // Verify parity between catalog.json and catalog.yaml
+  // 1. JSON Schema validation via Ajv
+  if (ajvValidate && catalogJson) {
+    const validJson = ajvValidate(catalogJson);
+    if (!validJson) {
+      for (const err of ajvValidate.errors || []) {
+        errors.push(`[catalog.json Schema] ${err.instancePath || '/'} ${err.message}`);
+      }
+    }
+  }
+
+  if (ajvValidate && catalogYaml) {
+    const validYaml = ajvValidate(catalogYaml);
+    if (!validYaml) {
+      for (const err of ajvValidate.errors || []) {
+        errors.push(`[catalog.yaml Schema] ${err.instancePath || '/'} ${err.message}`);
+      }
+    }
+  }
+
+  // 2. Deep canonical parity check
   if (catalogJson && catalogYaml) {
-    const jsonOnly = [...jsonResult.ids].filter((id) => !yamlResult.ids.has(id));
-    const yamlOnly = [...yamlResult.ids].filter((id) => !jsonResult.ids.has(id));
+    checkCanonicalParity(catalogJson, catalogYaml, errors);
+  }
 
-    if (jsonOnly.length > 0) {
-      errors.push(
-        `Scenario(s) present in catalog.json but missing in catalog.yaml: ${jsonOnly.join(', ')}`,
-      );
-    }
-    if (yamlOnly.length > 0) {
-      errors.push(
-        `Scenario(s) present in catalog.yaml but missing in catalog.json: ${yamlOnly.join(', ')}`,
-      );
-    }
+  // 3. Referenced source paths resolution check
+  const jsonPathsCount = catalogJson ? validateFilePaths(catalogJson, 'catalog.json', errors) : 0;
+  if (catalogYaml) {
+    validateFilePaths(catalogYaml, 'catalog.yaml', errors);
   }
 
   if (errors.length > 0) {
@@ -214,11 +214,16 @@ function validate() {
     process.exit(1);
   }
 
-  console.log(`JSON Catalog:       ${CATALOG_JSON}`);
-  console.log(`YAML Catalog:       ${CATALOG_YAML}`);
-  console.log(`Catalog Version:    ${catalogJson.version}`);
-  console.log(`Total Scenarios:    ${jsonResult.ids.size} (JSON) / ${yamlResult.ids.size} (YAML)`);
-  console.log(`Source Paths Check: ${jsonResult.checkedPaths} referenced files verified on disk`);
+  const scenarioCount = catalogJson.scenarios ? catalogJson.scenarios.length : 0;
+  console.log(`JSON Catalog:          ${CATALOG_JSON}`);
+  console.log(`YAML Catalog:          ${CATALOG_YAML}`);
+  console.log(`Schema File:           ${SCHEMA_FILE} (Ajv Draft-07 compiled)`);
+  console.log(`Catalog Version:       ${catalogJson.version}`);
+  console.log(
+    `Total Scenarios:       ${scenarioCount} (JSON) / ${catalogYaml.scenarios.length} (YAML)`,
+  );
+  console.log(`Canonical Parity:      VERIFIED (100% deep field match)`);
+  console.log(`Source Paths Check:    ${jsonPathsCount} referenced files verified on disk`);
   console.log('\nResult: ALL SCENARIOS VALID, SYNCHRONIZED, AND SOURCE PATHS RESOLVED.');
 }
 

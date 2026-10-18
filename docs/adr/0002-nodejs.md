@@ -1,4 +1,4 @@
-# ADR 0002: Selection of Node.js 18 LTS Runtime and Express.js
+# ADR 0002: Selection of Node.js 20 LTS Runtime and Express.js
 
 - **Status:** Accepted
 - **Date:** 2026-10-13
@@ -24,9 +24,9 @@ Potential candidate runtimes considered were:
 
 ## Decision
 
-We selected **Node.js 18 LTS** using modern **ECMAScript Modules (ESM - `"type": "module"`)** and **Express.js** for the API tier:
+We selected **Node.js 20 LTS** using modern **ECMAScript Modules (ESM - `"type": "module"`)** and **Express.js** for the API tier:
 
-1. **Alpine Linux Base Image:** Deployed on `node:18-alpine` to maintain an image size under 150MB and drastically minimize base OS vulnerabilities.
+1. **Alpine Linux Base Image:** Deployed on `node:20-alpine` to maintain an image size under 150MB and drastically minimize base OS vulnerabilities.
 2. **Built-in Non-Root User:** Utilizes the built-in non-root `node` user (UID 1000/1001), satisfying Kubernetes Pod Security Standards (PSS) Restricted profile out of the box.
 3. **Graceful Signal Handling:** Native event handling for `SIGTERM` and `SIGINT` enables zero-downtime rolling updates in Kubernetes by draining in-flight requests and closing connection pools cleanly.
 4. **Native Prometheus Client (`prom-client`):** High-performance histograms and counters for HTTP latency, database connection pools, and runtime memory metrics.
