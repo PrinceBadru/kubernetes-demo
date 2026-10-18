@@ -84,7 +84,7 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Setup k6
         if: steps.check_target.outputs.skip != 'true'
-        uses: grafana/setup-k6-action@24ccae16cb66927a44f4340eb9385bfb32187d90 # v1.1.0
+        uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
 
       # ------------------------------------------------------------------------
       # DevSecOps Principle: Pre-Execution Environment Preparation

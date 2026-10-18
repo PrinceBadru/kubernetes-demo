@@ -97,12 +97,12 @@ jobs:
         run: npm ci
 
       - name: Run Gitleaks Secret Scanner
-        uses: gitleaks/gitleaks-action@e9b251a37c568e64c399bfa53cb8fbe594d76f00 # v2.3.7
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Semgrep SAST Scanner
-        uses: semgrep/semgrep-action@713efdd34f2402890db721869e5d4cb9547d21c3 # v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1
         with:
           config: 'p/nodejs p/javascript p/owasp-top-ten'
 
@@ -110,7 +110,7 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Run Trivy Filesystem Scan
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'fs'
           severity: 'HIGH,CRITICAL'
@@ -118,12 +118,12 @@ jobs:
           format: 'table'
 
       - name: Run kube-linter on Kubernetes manifests
-        uses: stackrox/kube-linter-action@ca67eb2c0c1b7fa574ff7c244ad01d36d41eb3fa # v1.0.4
+        uses: stackrox/kube-linter-action@87802a2f4e01abebb3ee3c67a3002fea71f6eae5 # v1.0.7
         with:
           directory: 'k8s'
 
       - name: Run Checkov IaC Security Scanner
-        uses: bridgecrewio/checkov-action@125432d56a29777558ec944e8c1faeec6faaaefc # master
+        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # master
         with:
           directory: 'k8s/'
           framework: 'kubernetes'
@@ -181,7 +181,7 @@ jobs:
 
       # Strict Shift-Left Container Gate: Hard failure on unpatched CVEs
       - name: Scan container image with Trivy
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
           scan-type: 'image'
@@ -208,7 +208,7 @@ jobs:
           echo "${IMAGE_DIGEST}" > artifacts/image-digest.txt
 
       - name: Generate Software Bill of Materials (SBOM)
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
           scan-type: 'image'
@@ -239,7 +239,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup kubectl
-        uses: azure/setup-kubectl@3e0aec8d80793e9b119a7ef6f25134e72fb4d509 # v4.0.0
+        uses: azure/setup-kubectl@3e0aec4d80787158d308d7b364cb1b702e7feb7f # v4.0.0
         with:
           version: 'v1.30.0'
 

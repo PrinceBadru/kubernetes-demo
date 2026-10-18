@@ -71,7 +71,7 @@ jobs:
       # database passwords, private certificates) before they reach production.
       # ------------------------------------------------------------------------
       - name: Run Gitleaks Secret Scanner
-        uses: gitleaks/gitleaks-action@e9b251a37c568e64c399bfa53cb8fbe594d76f00 # v2.3.7
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -99,7 +99,7 @@ jobs:
       # - 'p/owasp-top-ten': Detects critical vulnerabilities like SQL injection, SSRF, XSS, and broken access controls.
       # ------------------------------------------------------------------------
       - name: Run Semgrep SAST Scanner
-        uses: semgrep/semgrep-action@713efdd34f2402890db721869e5d4cb9547d21c3 # v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1
         with:
           config: 'p/nodejs p/javascript p/owasp-top-ten'
 
@@ -150,7 +150,7 @@ jobs:
       # Fails the build (exit-code 1) on HIGH or CRITICAL vulnerabilities.
       # ------------------------------------------------------------------------
       - name: Run Trivy Filesystem Scan
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'fs'
           severity: 'HIGH,CRITICAL'
@@ -181,7 +181,7 @@ jobs:
       # - Verifies dropping of dangerous Linux capabilities
       # ------------------------------------------------------------------------
       - name: Run kube-linter on Kubernetes manifests
-        uses: stackrox/kube-linter-action@ca67eb2c0c1b7fa574ff7c244ad01d36d41eb3fa # v1.0.4
+        uses: stackrox/kube-linter-action@87802a2f4e01abebb3ee3c67a3002fea71f6eae5 # v1.0.7
         with:
           directory: 'k8s'
 
@@ -192,7 +192,7 @@ jobs:
       # Validates network policies, resource quotas, and RBAC least privilege.
       # ------------------------------------------------------------------------
       - name: Run Checkov IaC Security Scanner
-        uses: bridgecrewio/checkov-action@125432d56a29777558ec944e8c1faeec6faaaefc # master
+        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # master
         with:
           directory: 'k8s/'
           framework: 'kubernetes'
