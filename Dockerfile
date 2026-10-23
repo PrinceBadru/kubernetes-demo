@@ -62,7 +62,8 @@ COPY index.js package.json ./
 # - Creates an explicit unprivileged system group (appgroup: GID 1001)
 # - Creates an explicit unprivileged system user (appuser: UID 1001)
 # - Allocates dedicated /tmp/app scratch space owned by appuser for safe ephemeral writes
-RUN addgroup -g 1001 -S appgroup && \
+RUN apk upgrade --no-cache && \
+    addgroup -g 1001 -S appgroup && \
     adduser -S appuser -u 1001 -G appgroup && \
     mkdir -p /tmp/app && chown appuser:appgroup /tmp/app && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
