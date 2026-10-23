@@ -62,7 +62,7 @@ The system is designed as a secure, hardened 3-tier microservice architecture de
 - **Edge Security Controls:**
   - `nginx.ingress.kubernetes.io/limit-rps: "10"`: Enforces strict per-client IP rate limiting to mitigate Layer 7 volumetric Denial of Service (DoS) and brute-force attacks.
   - `nginx.ingress.kubernetes.io/proxy-body-size: "1m"`: Rejects oversized HTTP bodies before they reach application containers.
-  - `nginx.ingress.kubernetes.io/ssl-redirect: "true"`: Automatically redirects insecure HTTP traffic to HTTPS.
+  - `nginx.ingress.kubernetes.io/ssl-redirect: "false"`: Set to false for local demo environments without cert-manager. Production deployments configure `devsecops-demo-tls` and enable `ssl-redirect: "true"`.
 
 ### 2.2 API Application Tier (`devsecops-demo-api`)
 
@@ -173,12 +173,13 @@ The cluster employs **NIST SP 800-207 Zero-Trust Architecture** micro-segmentati
 
 ### 5.1 Standard Read / Write Flow
 
-1. Client sends HTTP `GET /api/status` to `devsecops-demo.local`.
+1. Client sends HTTP `GET /api/records` with authorization header to `devsecops-demo.local`.
 2. NGINX Ingress validates rate limits and proxy body limits, then routes to ClusterIP service `api:80`.
 3. kube-proxy load balances request across healthy API pods.
 4. API middleware calculates request duration and increments Prometheus counter `http_requests_total`.
-5. API checks Redis (`redis:6379`) for cached response. On cache miss, queries PostgreSQL (`postgres:5432`) using prepared statement.
-6. Result is cached in Redis with TTL and returned to client as JSON.
+5. API queries PostgreSQL (`postgres:5432`) using parameterized prepared statement ($1).
+6. Sanitized JSON audit record payload is returned to client as JSON.
+   _(Note: `GET /api/status` provides authenticated process and runtime diagnostic metadata, while `GET /api/health` provides sanitized downstream dependency health status.)_
 
 ### 5.2 Observability Scrape Flow
 

@@ -19,9 +19,9 @@ Ensure your workstation satisfies these requirements prior to running the demo s
 
 ---
 
-## ⚡ Quick Start (5 Commands to Full Demo)
+## ⚡ Quick Start (Complete 8-Step Demo Sequence)
 
-Run the entire demonstration workflow from scratch using five sequential commands:
+Run the entire demonstration workflow from scratch using the complete eight sequential steps:
 
 ```bash
 # 1. Provision multi-node local cluster with ingress & metrics-server
@@ -33,12 +33,23 @@ bash demo/02-deploy-full-stack.sh
 # 3. Verify zero-trust microsegmentation network policies
 bash demo/03-verify-network-policies.sh
 
-# 4. Simulate real-world container & network attacks (all blocked)
+# 4. Run automated security compliance suite (CIS Benchmark, PSS, SQLi, DAST)
+bash demo/04-run-security-tests.sh
+
+# 5. Run performance SLO tests and evaluate auto-scaling (k6)
+bash demo/05-run-performance-tests.sh
+
+# 6. Simulate real-world container & network attacks (all blocked)
 bash demo/06-simulate-attack.sh
 
-# 5. Open observability dashboards in your browser
+# 7. Execute chaos engineering, pod self-healing & dependency degradation
+bash demo/07-chaos-engineering.sh
+
+# 8. Open observability dashboards in your browser
 bash demo/08-show-dashboards.sh
 ```
+
+_(Note: For a compressed 5-command core walkthrough, operators can run steps 01, 02, 03, 06, and 08 while omitting offline compliance suites 04, 05, and 07.)_
 
 ---
 
@@ -59,7 +70,7 @@ bash demo/08-show-dashboards.sh
   ```
 - **Key DevSecOps Talking Points:**
   - _Infrastructure as Code (IaC):_ Declarative, repeatable cluster topologies.
-  - _Multi-Node Realism:_ A multi-node topology is essential to demonstrate `podAntiAffinity`, ensuring replicas are never co-located on a single physical host.
+  - _Multi-Node Realism:_ A multi-node topology is used to demonstrate preferred `podAntiAffinity`, scheduling replicas across distinct physical hosts on a best-effort basis while remaining schedulable on single-node environments.
   - _Dynamic Capacity:_ `metrics-server` enables native Kubernetes resource telemetry for the Horizontal Pod Autoscaler (HPA).
 
 ---

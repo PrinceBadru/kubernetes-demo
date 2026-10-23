@@ -179,7 +179,7 @@ kubernetes-demo/
 | **Injection Defense**                   | Parameterized SQL queries ($1, $2 placeholders) and centralized error masking                             | OWASP Top 10 A03:2021 Injection and database schema information leaks (CWE-200).       |
 | **Denial of Service (DoS) Defense**     | Ingress rate limiting (10 rps), payload limits (1MB), resource requests/limits                            | Volumetric Layer 7 flooding, noisy neighbors, and memory exhaustion crashes.           |
 | **SRE Probing Architecture**            | Decoupled `/healthz` (Liveness), `/readyz` (Readiness), and `/api/health` (Deep Check)                    | Cascading pod crash loops during transient database or cache hiccups.                  |
-| **Elastic Self-Healing**                | Horizontal Pod Autoscaler (2-5 replicas), ReplicaSets with Pod Anti-Affinity                              | Service unavailability during traffic spikes or single-node hardware outages.          |
+| **Elastic Self-Healing**                | Horizontal Pod Autoscaler (2-5 replicas), ReplicaSets with preferred Pod Anti-Affinity                    | Service unavailability during traffic spikes or single-node hardware outages.          |
 
 ---
 

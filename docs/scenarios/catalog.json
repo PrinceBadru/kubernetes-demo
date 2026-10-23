@@ -24,8 +24,8 @@
         "after": "All pods transition to Running and readyReplicas matches desired replicas."
       },
       "evidence": {
-        "log_pattern": "deployment.apps/api condition met",
-        "command": "kubectl get pods -n devsecops-demo -l app.kubernetes.io/part-of=devsecops-demo"
+        "log_pattern": "successfully rolled out",
+        "command": "kubectl rollout status deployment/api -n devsecops-demo"
       },
       "source_paths": {
         "manifests": [
@@ -62,8 +62,8 @@
         "after": "NetworkPolicy drops all packets; probe fails with connection timeout."
       },
       "evidence": {
-        "log_pattern": "Connection timed out",
-        "command": "kubectl exec -n devsecops-demo netpol-probe -- nc -z -w 3 postgres 5432"
+        "log_pattern": "Connection timed out/rejected as expected by NetworkPolicy",
+        "command": "kubectl exec -n devsecops-demo netpol-unauthorized-probe -- nc -z -w 3 postgres 5432"
       },
       "source_paths": {
         "manifests": ["k8s/security/network-policies.yaml"],
@@ -71,7 +71,7 @@
       },
       "reversibility": {
         "cleanup_action": "delete_pod",
-        "target": "netpol-unauthorized-probe-*"
+        "target": "netpol-unauthorized-probe"
       }
     },
     {
@@ -161,8 +161,8 @@
         "after": "Token file path does not exist; in-pod credential extraction is impossible."
       },
       "evidence": {
-        "log_pattern": "No such file or directory",
-        "command": "kubectl exec -n devsecops-demo deploy/api -- ls /var/run/secrets/kubernetes.io/serviceaccount"
+        "log_pattern": "automountServiceAccountToken is explicitly set to false",
+        "command": "kubectl get pod -l app.kubernetes.io/name=api -n devsecops-demo -o jsonpath='{.items[0].spec.automountServiceAccountToken}'"
       },
       "source_paths": {
         "manifests": [
