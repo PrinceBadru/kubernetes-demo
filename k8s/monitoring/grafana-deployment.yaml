@@ -851,7 +851,8 @@ spec:
           configMap:
             name: grafana-dashboards
         - name: grafana-data-storage
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: grafana-storage
         - name: tmp-volume
           emptyDir: {}
 

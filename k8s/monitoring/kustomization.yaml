@@ -10,7 +10,21 @@ namespace: monitoring
 
 resources:
   - namespace.yaml
+  - pvc.yaml
   - network-policies.yaml
   - prometheus-config.yaml
   - prometheus-deployment.yaml
   - grafana-deployment.yaml
+
+# -----------------------------------------------------------------------------
+# DevSecOps Principle: Declarative Secret Provisioning (NEW-01)
+# Ensures grafana-admin-credentials exists for declarative Kustomize composition.
+# -----------------------------------------------------------------------------
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: grafana-admin-credentials
+    literals:
+      - admin-user=admin
+      - admin-password=demo-grafana-secure-pass-2026!

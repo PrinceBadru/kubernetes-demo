@@ -11,7 +11,6 @@ namespace: devsecops-demo
 
 resources:
   - configmap.yaml
-  - secrets.yaml
   - service-account.yaml
   - api-deployment.yaml
   - api-service.yaml
@@ -21,6 +20,21 @@ resources:
   - redis-deployment.yaml
   - redis-service.yaml
   - ingress.yaml
+
+# -----------------------------------------------------------------------------
+# DevSecOps Principle: Declarative Secret Provisioning (NEW-01)
+# Provides baseline declarative secrets for local evaluation and GitOps preview.
+# Production deployments override via SecretGenerator overlay, SealedSecrets, or ExternalSecrets.
+# -----------------------------------------------------------------------------
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: app-secrets
+    literals:
+      - PG_PASSWORD=demo-db-secret-unprivileged-2026!
+      - POSTGRES_PASSWORD=demo-db-secret-unprivileged-2026!
+      - API_AUTH_TOKEN=demo-api-auth-token-2026!
 
 # -----------------------------------------------------------------------------
 # Image Management: Configurable image name/tag overrides for CI and local deployments
