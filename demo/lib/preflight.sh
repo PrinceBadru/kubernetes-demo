@@ -124,4 +124,24 @@ run_standard_preflight() {
   check_cluster_reachability
   check_context_safety
   display_target_env "${target_ns}"
+  check_kustomize_composition
+}
+
+check_kustomize_composition() {
+  log_info "Validating root declarative Kustomize composition..."
+  if ! kubectl kustomize k8s/ >/dev/null; then
+    echo -e "${COLOR_RED}[PREFLIGHT ERROR] Root Kustomize composition at k8s/ failed to render.${COLOR_RESET}" >&2
+    exit 1
+  fi
+  log_success "Root Kustomize composition renders cleanly."
+}
+
+check_metrics_api() {
+  log_info "Checking metrics.k8s.io API availability..."
+  if ! kubectl get --raw "/apis/metrics.k8s.io/v1beta1" &>/dev/null; then
+    log_warn "metrics.k8s.io API is not yet available in cluster. HPA auto-scaling requires metrics-server."
+    return 1
+  fi
+  log_success "metrics.k8s.io API is active and reachable."
+  return 0
 }

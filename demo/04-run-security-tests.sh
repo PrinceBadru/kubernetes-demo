@@ -148,7 +148,9 @@ log_suite "3/4" "SQL Injection & Input Sanitization Defense Suite"
 if [[ -f tests/security/sql-injection.test.sh ]]; then
   log_info "Executing tests/security/sql-injection.test.sh..."
   set +e
-  REPORT_FILE="artifacts/security/sql-injection-results.json" bash tests/security/sql-injection.test.sh
+  API_URL="${API_URL:-http://localhost:3000}"
+  API_AUTH_TOKEN="${API_AUTH_TOKEN:-demo-api-auth-token-2026!}"
+  API_URL="${API_URL}" API_AUTH_TOKEN="${API_AUTH_TOKEN}" REPORT_FILE="artifacts/security/sql-injection-results.json" bash tests/security/sql-injection.test.sh
   SQLI_EXIT=$?
   set -e
   if [[ ${SQLI_EXIT} -eq 0 ]]; then
@@ -208,7 +210,9 @@ fi
 END_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 if [[ ${SUITE_FAILURES} -gt 0 ]]; then
   OVERALL_STATUS="FAILED"
-elif [[ "${CONTAINER_SEC_STATUS}" == "INDETERMINATE" || "${NETPOL_STATUS}" == "INDETERMINATE" || "${SQLI_STATUS}" == "INDETERMINATE" ]]; then
+elif [[ "${ZAP_STATUS}" == "WARNINGS" ]]; then
+  OVERALL_STATUS="WARNINGS"
+elif [[ "${CONTAINER_SEC_STATUS}" == "INDETERMINATE" || "${NETPOL_STATUS}" == "INDETERMINATE" || "${SQLI_STATUS}" == "INDETERMINATE" || "${ZAP_STATUS}" == "SKIPPED" ]]; then
   OVERALL_STATUS="INDETERMINATE"
 else
   OVERALL_STATUS="PASSED"
@@ -322,8 +326,10 @@ EOF
 echo -e "\n${COLOR_CYAN}======================================================================${COLOR_RESET}"
 if [[ "${OVERALL_STATUS}" == "PASSED" ]]; then
   echo -e "${COLOR_GREEN}${BOLD} ✅ Step 4 Complete: All Required Security Test Suites Passed!${COLOR_RESET}"
+elif [[ "${OVERALL_STATUS}" == "WARNINGS" ]]; then
+  echo -e "${COLOR_YELLOW}${BOLD} ⚠ Step 4 Completed with Warnings: DAST scan reported security warnings!${COLOR_RESET}"
 elif [[ "${OVERALL_STATUS}" == "INDETERMINATE" ]]; then
-  echo -e "${COLOR_YELLOW}${BOLD} ⚠ Step 4 Indeterminate: One or more suites had unmet preconditions!${COLOR_RESET}"
+  echo -e "${COLOR_YELLOW}${BOLD} ⚠ Step 4 Indeterminate: One or more suites had unmet preconditions or skipped checks!${COLOR_RESET}"
 else
   echo -e "${COLOR_RED}${BOLD} ❌ Step 4 Failed: ${SUITE_FAILURES} Security Test Suite(s) Failed!${COLOR_RESET}"
 fi
@@ -338,7 +344,7 @@ echo -e ""
 
 if [[ "${SUITE_FAILURES}" -gt 0 ]]; then
   exit 1
-elif [[ "${OVERALL_STATUS}" == "INDETERMINATE" ]]; then
+elif [[ "${OVERALL_STATUS}" == "WARNINGS" || "${OVERALL_STATUS}" == "INDETERMINATE" ]]; then
   exit 2
 fi
 

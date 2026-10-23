@@ -215,10 +215,11 @@ kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
 ]' 2>/dev/null || true
 
 log_info "Waiting for Metrics Server deployment to become available..."
-kubectl rollout status deployment metrics-server -n kube-system --timeout=120s || {
-  log_warn "Metrics server rollout wait reached timeout; continuing..."
-}
-log_success "Metrics Server deployed."
+if ! kubectl rollout status deployment metrics-server -n kube-system --timeout=120s; then
+  log_warn "Metrics server rollout reached timeout. HPA autoscaling will be in degraded state until metrics.k8s.io is reachable."
+else
+  log_success "Metrics Server deployed and ready."
+fi
 
 # ------------------------------------------------------------------------------
 # 5. Cluster Verification & Node Summary

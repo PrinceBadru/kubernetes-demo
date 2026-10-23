@@ -40,10 +40,16 @@ export const options = {
   },
 };
 
-const BASE_URL =
-  __ENV.BASE_URL && __ENV.BASE_URL.trim() !== '' ? __ENV.BASE_URL.trim() : 'http://localhost:3000';
+const rawBaseUrl = __ENV.BASE_URL ? __ENV.BASE_URL.trim() : '';
+if (!rawBaseUrl) {
+  throw new Error(
+    '[k6] Configuration error: BASE_URL environment variable is required and cannot be empty (F-25, F-62).',
+  );
+}
+const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export function setup() {
+  console.log(`[k6] Executing stress test against target: ${BASE_URL}`);
   // Fail fast if target endpoint is unreachable (F-62)
   const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
   if (probe.status !== 200) {
@@ -69,6 +75,21 @@ export default function () {
     'status is 200 or 429': (r) => r.status === 200 || r.status === 429,
     'no 5xx fatal crashes': (r) => r.status < 500,
     'response under 3000ms': (r) => r.timings.duration < 3000,
+    'semantic response validation': (r) => {
+      if (r.status === 429) return true;
+      if (r.status !== 200) return false;
+      if (endpoint === '/') {
+        try {
+          const body = JSON.parse(r.body);
+          return body && body.service === 'devsecops-demo-api';
+        } catch (_) {
+          return false;
+        }
+      }
+      if (endpoint === '/healthz') return r.body === 'ok';
+      if (endpoint === '/readyz') return r.body === 'ready';
+      return true;
+    },
   });
 
   // Short sleep to maintain continuous high concurrency

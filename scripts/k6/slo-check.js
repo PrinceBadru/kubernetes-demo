@@ -20,7 +20,13 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
+const rawBaseUrl = __ENV.BASE_URL ? __ENV.BASE_URL.trim() : '';
+if (!rawBaseUrl) {
+  throw new Error(
+    '[k6] Configuration error: BASE_URL environment variable is required and cannot be empty (F-25, F-62).',
+  );
+}
+const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 // Custom metrics dedicated to tracking Service Level Indicators (SLIs)
 const sloAvailability = new Rate('slo_availability');

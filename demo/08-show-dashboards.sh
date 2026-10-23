@@ -52,64 +52,78 @@ fi
 PIDS=()
 
 cleanup() {
+  local exit_code=$?
   echo -e "\n${COLOR_YELLOW}Stopping background port-forwarding tunnels...${COLOR_RESET}"
   for pid in "${PIDS[@]}"; do
     kill "${pid}" 2>/dev/null || true
   done
   echo -e "${COLOR_GREEN}Tunnels terminated cleanly.${COLOR_RESET}"
-  exit 0
+  exit "${exit_code}"
 }
 
 trap cleanup INT TERM EXIT
 
+# Verify all required services exist before launching tunnels (F-48)
+MISSING_SVCS=0
+if ! kubectl get svc/grafana -n "${MONITORING_NAMESPACE}" &>/dev/null; then
+  echo -e "${COLOR_RED}[FAIL] Required Service 'grafana' not found in namespace '${MONITORING_NAMESPACE}'.${COLOR_RESET}"
+  MISSING_SVCS=$((MISSING_SVCS + 1))
+fi
+if ! kubectl get svc/prometheus -n "${MONITORING_NAMESPACE}" &>/dev/null; then
+  echo -e "${COLOR_RED}[FAIL] Required Service 'prometheus' not found in namespace '${MONITORING_NAMESPACE}'.${COLOR_RESET}"
+  MISSING_SVCS=$((MISSING_SVCS + 1))
+fi
+if ! kubectl get svc/api -n "${APP_NAMESPACE}" &>/dev/null; then
+  echo -e "${COLOR_RED}[FAIL] Required Service 'api' not found in namespace '${APP_NAMESPACE}'.${COLOR_RESET}"
+  MISSING_SVCS=$((MISSING_SVCS + 1))
+fi
+
+if [[ ${MISSING_SVCS} -gt 0 ]]; then
+  echo -e "${COLOR_RED}[FATAL] Cannot establish dashboard tunnels because ${MISSING_SVCS} required service(s) are missing.${COLOR_RESET}"
+  exit 1
+fi
+
 # ------------------------------------------------------------------------------
 # 1. Port-Forward Grafana
 # ------------------------------------------------------------------------------
-if kubectl get svc/grafana -n "${MONITORING_NAMESPACE}" &>/dev/null; then
-  echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Starting Grafana tunnel on http://localhost:3001..."
-  kubectl port-forward -n "${MONITORING_NAMESPACE}" svc/grafana 3001:3000 >/dev/null 2>&1 &
-  PIDS+=($!)
-else
-  echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} Service 'grafana' not found in namespace '${MONITORING_NAMESPACE}'."
-fi
+echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Starting Grafana tunnel on http://localhost:3001..."
+kubectl port-forward -n "${MONITORING_NAMESPACE}" svc/grafana 3001:3000 >/dev/null 2>&1 &
+PIDS+=($!)
 
 # ------------------------------------------------------------------------------
 # 2. Port-Forward Prometheus
 # ------------------------------------------------------------------------------
-if kubectl get svc/prometheus -n "${MONITORING_NAMESPACE}" &>/dev/null; then
-  echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Starting Prometheus tunnel on http://localhost:9090..."
-  kubectl port-forward -n "${MONITORING_NAMESPACE}" svc/prometheus 9090:9090 >/dev/null 2>&1 &
-  PIDS+=($!)
-else
-  echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} Service 'prometheus' not found in namespace '${MONITORING_NAMESPACE}'."
-fi
+echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Starting Prometheus tunnel on http://localhost:9090..."
+kubectl port-forward -n "${MONITORING_NAMESPACE}" svc/prometheus 9090:9090 >/dev/null 2>&1 &
+PIDS+=($!)
 
 # ------------------------------------------------------------------------------
 # 3. Port-Forward API Service
 # ------------------------------------------------------------------------------
-if kubectl get svc/api -n "${APP_NAMESPACE}" &>/dev/null; then
-  echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Starting API service tunnel on http://localhost:3000..."
-  kubectl port-forward -n "${APP_NAMESPACE}" svc/api 3000:80 >/dev/null 2>&1 &
-  PIDS+=($!)
-else
-  echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} Service 'api' not found in namespace '${APP_NAMESPACE}'."
-fi
+echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Starting API service tunnel on http://localhost:3000..."
+kubectl port-forward -n "${APP_NAMESPACE}" svc/api 3000:80 >/dev/null 2>&1 &
+PIDS+=($!)
 
-# Actively poll port-forward endpoints to verify connectivity before declaring ready (F-48)
-echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Verifying tunnel connectivity..."
+# Actively poll all three port-forward endpoints to verify connectivity (F-48)
+echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} Verifying connectivity across all three required tunnels..."
 TUNNELS_READY=false
-for attempt in {1..10}; do
-  if curl -s --max-time 1 http://localhost:3000/healthz &>/dev/null || \
-     curl -s --max-time 1 http://localhost:9090/-/ready &>/dev/null || \
-     curl -s --max-time 1 http://localhost:3001/api/health &>/dev/null; then
+API_OK=false
+PROM_OK=false
+GRAF_OK=false
+
+for attempt in {1..15}; do
+  curl -s --max-time 1 http://localhost:3000/healthz &>/dev/null && API_OK=true
+  curl -s --max-time 1 http://localhost:9090/-/ready &>/dev/null && PROM_OK=true
+  curl -s --max-time 1 http://localhost:3001/api/health &>/dev/null && GRAF_OK=true
+  if [[ "${API_OK}" == "true" && "${PROM_OK}" == "true" && "${GRAF_OK}" == "true" ]]; then
     TUNNELS_READY=true
     break
   fi
   sleep 1
 done
 
-if [[ ${#PIDS[@]} -eq 0 ]]; then
-  echo -e "\n${COLOR_RED}[FAIL] No port-forward tunnels could be established. Ensure workloads are deployed.${COLOR_RESET}"
+if [[ "${TUNNELS_READY}" != "true" ]]; then
+  echo -e "\n${COLOR_RED}[FAIL] One or more required tunnels failed to reach readiness (API: ${API_OK}, Prometheus: ${PROM_OK}, Grafana: ${GRAF_OK}).${COLOR_RESET}"
   exit 1
 fi
 

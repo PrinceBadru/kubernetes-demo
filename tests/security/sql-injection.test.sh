@@ -171,21 +171,44 @@ assert_vector() {
     return
   fi
 
-  # Check 4: For search tautology (SQLI-02), assert count is strictly 0 (no bypassed rows)
-  if [[ "${test_id}" == "SQLI-02" ]]; then
-    local match_count
-    match_count=$(echo "${content}" | grep -o '"count":[0-9]*' | head -n1 | cut -d: -f2 || echo "-1")
-    if [[ "${match_count}" -ne 0 ]]; then
-      record_result "${test_id}" "${test_name}" "FAIL" "Tautology bypassed WHERE clause: returned ${match_count} rows instead of 0 literal matches" "${code}" "${dur_ms}"
+  # Check 4: Semantic JSON response and schema validation (F-16)
+  if [[ "${expected_code}" == "200" ]]; then
+    if ! echo "${content}" | grep -q '"status":"ok"'; then
+      record_result "${test_id}" "${test_name}" "FAIL" "Expected status 'ok' in JSON body, got: ${content:0:80}" "${code}" "${dur_ms}"
+      return
+    fi
+  elif [[ "${expected_code}" == "400" ]]; then
+    if ! echo "${content}" | grep -q '"status":"error"'; then
+      record_result "${test_id}" "${test_name}" "FAIL" "Expected status 'error' in JSON body for 400 rejection, got: ${content:0:80}" "${code}" "${dur_ms}"
       return
     fi
   fi
 
-  # Check 5: For stacked DROP query (SQLI-03), assert audit_logs table remains intact and functional
+  # Check 5: For tautology (SQLI-02) and UNION (SQLI-04), assert count is strictly 0 and records array is []
+  if [[ "${test_id}" == "SQLI-02" || "${test_id}" == "SQLI-04" ]]; then
+    local match_count
+    match_count=$(echo "${content}" | grep -o '"count":[0-9]*' | head -n1 | cut -d: -f2 || echo "-1")
+    if [[ "${match_count}" -ne 0 ]]; then
+      record_result "${test_id}" "${test_name}" "FAIL" "Injection vector bypassed WHERE clause: returned ${match_count} rows instead of 0 literal matches" "${code}" "${dur_ms}"
+      return
+    fi
+    if ! echo "${content}" | grep -q '"records":\[\]'; then
+      record_result "${test_id}" "${test_name}" "FAIL" "Records array not empty for zero-match injection test" "${code}" "${dur_ms}"
+      return
+    fi
+  fi
+
+  # Check 6: For stacked DROP query (SQLI-03), assert audit_logs table remains intact and functional
   if [[ "${test_id}" == "SQLI-03" ]]; then
+    local verify_file
+    verify_file=$(mktemp)
     local verify_code
-    verify_code=$(curl -s -H "x-api-key: ${API_AUTH_TOKEN}" -o /dev/null -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records?id=1" || echo "000")
-    if [[ "${verify_code}" != "200" ]]; then
+    verify_code=$(curl -s -H "x-api-key: ${API_AUTH_TOKEN}" -o "${verify_file}" -w "%{http_code}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records?id=1" || echo "000")
+    local verify_content
+    verify_content=$(cat "${verify_file}" 2>/dev/null || true)
+    rm -f "${verify_file}"
+
+    if [[ "${verify_code}" != "200" ]] || ! echo "${verify_content}" | grep -q '"action":"USER_LOGIN"'; then
       record_result "${test_id}" "${test_name}" "FAIL" "Destructive DDL query dropped or damaged table: GET /api/records?id=1 returned HTTP ${verify_code}" "${code}" "${dur_ms}"
       return
     fi
@@ -243,10 +266,14 @@ assert_vector \
 # Expectation: Assert database audit_logs state is byte-identical pre and post injection
 # ------------------------------------------------------------------------------
 POST_SNAPSHOT=$(curl -s -H "x-api-key: ${API_AUTH_TOKEN}" --max-time "${TIMEOUT_SEC}" "${API_URL}/api/records" || echo "")
-if [[ -n "${BASELINE_SNAPSHOT}" && "${BASELINE_SNAPSHOT}" == "${POST_SNAPSHOT}" ]]; then
-  record_result "SQLI-05" "Database State Invariance (Zero Data Modification)" "PASS" "Audit records verified byte-identical pre and post attack execution" "200" "1"
+
+BASELINE_COUNT=$(echo "${BASELINE_SNAPSHOT}" | grep -o '"count":[0-9]*' | head -n1 | cut -d: -f2 || echo "-1")
+POST_COUNT=$(echo "${POST_SNAPSHOT}" | grep -o '"count":[0-9]*' | head -n1 | cut -d: -f2 || echo "-2")
+
+if [[ -n "${BASELINE_SNAPSHOT}" && -n "${POST_SNAPSHOT}" && "${BASELINE_COUNT}" -eq "${POST_COUNT}" && "${BASELINE_COUNT}" -ge 4 && "${BASELINE_SNAPSHOT}" == "${POST_SNAPSHOT}" ]]; then
+  record_result "SQLI-05" "Database State Invariance (Zero Data Modification)" "PASS" "Audit records verified byte-identical pre and post attack execution (deterministic row count: ${POST_COUNT})" "200" "1"
 else
-  record_result "SQLI-05" "Database State Invariance (Zero Data Modification)" "FAIL" "Database records were modified or corrupted during test run!" "500" "1"
+  record_result "SQLI-05" "Database State Invariance (Zero Data Modification)" "FAIL" "Database records were modified or corrupted during test run! Baseline count: ${BASELINE_COUNT}, Post count: ${POST_COUNT}" "500" "1"
 fi
 
 # ------------------------------------------------------------------------------

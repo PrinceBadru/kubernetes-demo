@@ -35,11 +35,17 @@ export const options = {
   },
 };
 
-const BASE_URL =
-  __ENV.BASE_URL && __ENV.BASE_URL.trim() !== '' ? __ENV.BASE_URL.trim() : 'http://localhost:3000';
+const rawBaseUrl = __ENV.BASE_URL ? __ENV.BASE_URL.trim() : '';
+if (!rawBaseUrl) {
+  throw new Error(
+    '[k6] Configuration error: BASE_URL environment variable is required and cannot be empty (F-25, F-62).',
+  );
+}
+const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 const API_TOKEN = __ENV.API_KEY || __ENV.API_AUTH_TOKEN || 'devsecops-demo-api-key';
 
 export function setup() {
+  console.log(`[k6] Executing smoke test against target: ${BASE_URL}`);
   // Fail fast if target endpoint is unreachable (F-62)
   const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
   if (probe.status !== 200) {

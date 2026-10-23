@@ -150,7 +150,9 @@ if [[ -f "${SCRIPT_DIR}/lib/generate-secrets.sh" ]]; then
   "${SCRIPT_DIR}/lib/generate-secrets.sh"
 fi
 kubectl apply -f k8s/base/configmap.yaml
-kubectl apply -f k8s/base/secrets.yaml
+if [[ -f k8s/base/secrets.yaml ]]; then
+  kubectl apply -f k8s/base/secrets.yaml
+fi
 log_success "Configuration and credentials mounted."
 
 # ------------------------------------------------------------------------------
@@ -251,17 +253,17 @@ data:
       - job_name: 'devsecops-demo-api'
         metrics_path: '/metrics'
         kubernetes_sd_configs:
-          - role: endpoints
+          - role: pod
             namespaces:
               names:
                 - devsecops-demo
         relabel_configs:
-          - source_labels: [__meta_kubernetes_service_name]
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
             action: keep
             regex: api
-          - source_labels: [__meta_kubernetes_endpoint_port_name]
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
             action: keep
-            regex: http
+            regex: '3000'
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -341,13 +343,15 @@ spec:
               name: web
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: "admin"
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin-credentials
+                  key: admin-user
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: grafana-admin-credentials
                   key: admin-password
-                  optional: true
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
 ---
@@ -398,22 +402,39 @@ kubectl get hpa -n "${NAMESPACE}"
 echo -e "\n${COLOR_CYAN}Active Network Policies (${NAMESPACE}):${COLOR_RESET}"
 kubectl get networkpolicy -n "${NAMESPACE}"
 
-echo -e "\n${COLOR_GREEN}${BOLD}======================================================================${COLOR_RESET}"
-echo -e "${COLOR_GREEN}${BOLD} 🎉 Full Stack Successfully Deployed!${COLOR_RESET}"
-echo -e "${COLOR_GREEN}${BOLD}======================================================================${COLOR_RESET}"
-echo -e "${BOLD}Access Endpoints & Verification:${COLOR_RESET}"
-echo -e "  🌐 Ingress (via Hosts file / Host header):"
-echo -e "     curl -H 'Host: devsecops-demo.local' http://localhost"
-echo -e "     curl -H 'Host: devsecops-demo.local' http://localhost/api/health"
-echo -e ""
-echo -e "  🔌 Direct Port-Forwarding (Optional):"
-echo -e "     kubectl port-forward -n ${NAMESPACE} svc/api 3000:80"
-echo -e "     -> Test: curl http://localhost:3000/api/status"
-echo -e ""
-echo -e "  📊 Observability Dashboards:"
-echo -e "     Run: ${BOLD}bash demo/08-show-dashboards.sh${COLOR_RESET}"
-GRAFANA_PW=$(kubectl get secret grafana-admin-credentials -n "${MONITORING_NAMESPACE:-monitoring}" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 --decode 2>/dev/null || echo "(see k8s/monitoring/grafana-secrets.yaml)")
-echo -e "     - Grafana:    http://localhost:3001 (User: admin / Pass: ${GRAFANA_PW})"
-echo -e "     - Prometheus: http://localhost:9090"
-echo -e ""
-echo -e "Next Step: Execute ${BOLD}bash demo/03-verify-network-policies.sh${COLOR_RESET}"
+if [ "$MONITORING_DEGRADED" = "true" ]; then
+  echo -e "\n${COLOR_YELLOW}${BOLD}======================================================================${COLOR_RESET}"
+  echo -e "${COLOR_YELLOW}${BOLD} ⚠️  Application Deployed with Degraded Observability Monitoring!${COLOR_RESET}"
+  echo -e "${COLOR_YELLOW}${BOLD}======================================================================${COLOR_RESET}"
+  echo -e "${BOLD}Access Endpoints & Verification:${COLOR_RESET}"
+  echo -e "  🌐 Ingress (via Hosts file / Host header):"
+  echo -e "     curl -H 'Host: devsecops-demo.local' http://localhost"
+  echo -e "     curl -H 'Host: devsecops-demo.local' http://localhost/api/health"
+  echo -e ""
+  echo -e "  ⚠️  Monitoring stack is degraded. Inspect with:"
+  echo -e "     kubectl get pods -n ${MONITORING_NAMESPACE:-monitoring}"
+  echo -e ""
+  echo -e "Next Step: Execute ${BOLD}bash demo/03-verify-network-policies.sh${COLOR_RESET}"
+  exit 2
+else
+  echo -e "\n${COLOR_GREEN}${BOLD}======================================================================${COLOR_RESET}"
+  echo -e "${COLOR_GREEN}${BOLD} 🎉 Full Stack Successfully Deployed!${COLOR_RESET}"
+  echo -e "${COLOR_GREEN}${BOLD}======================================================================${COLOR_RESET}"
+  echo -e "${BOLD}Access Endpoints & Verification:${COLOR_RESET}"
+  echo -e "  🌐 Ingress (via Hosts file / Host header):"
+  echo -e "     curl -H 'Host: devsecops-demo.local' http://localhost"
+  echo -e "     curl -H 'Host: devsecops-demo.local' http://localhost/api/health"
+  echo -e ""
+  echo -e "  🔌 Direct Port-Forwarding (Optional):"
+  echo -e "     kubectl port-forward -n ${NAMESPACE} svc/api 3000:80"
+  echo -e "     -> Test: curl http://localhost:3000/api/status"
+  echo -e ""
+  echo -e "  📊 Observability Dashboards:"
+  echo -e "     Run: ${BOLD}bash demo/08-show-dashboards.sh${COLOR_RESET}"
+  GRAFANA_PW=$(kubectl get secret grafana-admin-credentials -n "${MONITORING_NAMESPACE:-monitoring}" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 --decode 2>/dev/null || echo "(see k8s/monitoring/grafana-secrets.yaml)")
+  echo -e "     - Grafana:    http://localhost:3001 (User: admin / Pass: ${GRAFANA_PW})"
+  echo -e "     - Prometheus: http://localhost:9090"
+  echo -e ""
+  echo -e "Next Step: Execute ${BOLD}bash demo/03-verify-network-policies.sh${COLOR_RESET}"
+  exit 0
+fi

@@ -40,10 +40,16 @@ export const options = {
   },
 };
 
-const BASE_URL =
-  __ENV.BASE_URL && __ENV.BASE_URL.trim() !== '' ? __ENV.BASE_URL.trim() : 'http://localhost:3000';
+const rawBaseUrl = __ENV.BASE_URL ? __ENV.BASE_URL.trim() : '';
+if (!rawBaseUrl) {
+  throw new Error(
+    '[k6] Configuration error: BASE_URL environment variable is required and cannot be empty (F-25, F-62).',
+  );
+}
+const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export function setup() {
+  console.log(`[k6] Executing spike test against target: ${BASE_URL}`);
   // Fail fast if target endpoint is unreachable (F-62)
   const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
   if (probe.status !== 200) {
@@ -63,8 +69,17 @@ export default function () {
 
   check(res, {
     'request succeeded or throttled cleanly': (r) => r.status === 200 || r.status === 429,
-    'no internal server errors (500)': (r) => r.status !== 500,
-    'response received': (r) => r.body !== null,
+    'no internal server errors': (r) => r.status < 500,
+    'semantic response validation': (r) => {
+      if (r.status === 429) return true; // cleanly throttled
+      if (r.status !== 200) return false;
+      try {
+        const body = JSON.parse(r.body);
+        return body && body.service === 'devsecops-demo-api' && body.status === 'ok';
+      } catch (_) {
+        return false;
+      }
+    },
   });
 
   // Short pause between iterations

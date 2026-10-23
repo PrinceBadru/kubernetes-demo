@@ -35,10 +35,16 @@ export const options = {
   },
 };
 
-const BASE_URL =
-  __ENV.BASE_URL && __ENV.BASE_URL.trim() !== '' ? __ENV.BASE_URL.trim() : 'http://localhost:3000';
+const rawBaseUrl = __ENV.BASE_URL ? __ENV.BASE_URL.trim() : '';
+if (!rawBaseUrl) {
+  throw new Error(
+    '[k6] Configuration error: BASE_URL environment variable is required and cannot be empty (F-25, F-62).',
+  );
+}
+const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export function setup() {
+  console.log(`[k6] Executing soak test against target: ${BASE_URL}`);
   // Fail fast if target endpoint is unreachable (F-62)
   const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
   if (probe.status !== 200) {
@@ -58,6 +64,7 @@ export default function () {
   const healthRes = http.get(`${BASE_URL}/healthz`, { headers });
   check(healthRes, {
     'healthz status is 200': (r) => r.status === 200,
+    'healthz body is ok': (r) => r.body === 'ok',
     'healthz latency < 1000ms': (r) => r.timings.duration < 1000,
   });
 
@@ -68,7 +75,14 @@ export default function () {
   check(mainRes, {
     'root status is 200': (r) => r.status === 200,
     'root latency < 1000ms': (r) => r.timings.duration < 1000,
-    'pod identifier present': (r) => r.body && r.body.includes('pod'),
+    'semantic response validation': (r) => {
+      try {
+        const body = JSON.parse(r.body);
+        return body && body.service === 'devsecops-demo-api' && body.status === 'ok';
+      } catch (_) {
+        return false;
+      }
+    },
   });
 
   // Realistic client think time between transactions

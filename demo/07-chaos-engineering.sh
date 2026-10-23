@@ -213,7 +213,13 @@ for pid in "${LOAD_PIDS[@]}"; do
 done
 LOAD_PIDS=()
 
-log_success "Elastic scaling pipeline evaluated successfully. HPA operates within configured replica limits."
+HPA_SCALING_ACTIVE=$(kubectl get hpa api -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="ScalingActive")].status}' 2>/dev/null || echo "Unknown")
+if [[ "${HPA_SCALING_ACTIVE}" == "True" ]]; then
+  log_success "Elastic scaling pipeline evaluated successfully: HPA ScalingActive condition is True (observed replicas: ${CURRENT_REPLICAS})."
+else
+  log_warn "HPA ScalingActive condition is '${HPA_SCALING_ACTIVE}'. Autoscaling metrics uncollected or metrics-server inactive."
+  CHAOS_FAILURES=$((CHAOS_FAILURES + 1))
+fi
 
 # ------------------------------------------------------------------------------
 # Chaos 3: Dependency Degradation (Decoupled Health vs Liveness Probes)

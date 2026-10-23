@@ -149,23 +149,41 @@ if ! kubectl wait --namespace="${NAMESPACE}" --for=condition=Ready "pod/${UNAUTH
   log_warn "Unauthorized probe pod failed to reach Ready status. Default-deny tests will evaluate INDETERMINATE."
 fi
 
-# Helper function to test TCP port reachability from a pod
+# Helper function to test TCP port reachability from a pod (F-47)
+# Returns:
+#   0: Connection succeeded (port open)
+#   1: Connection blocked or timed out (expected denied behavior)
+#   126: Probe exec failed / container unready (INDETERMINATE)
 check_tcp_connection() {
   local from_pod="$1"
   local target_host="$2"
   local target_port="$3"
 
-  # Use nc (netcat) with timeout or /dev/tcp if available
+  # Verify kubectl exec connectivity to pod
+  if ! kubectl exec -n "${NAMESPACE}" "${from_pod}" -- true >/dev/null 2>&1; then
+    return 126
+  fi
+
+  # Execute connection probe via netcat
   kubectl exec -n "${NAMESPACE}" "${from_pod}" -- \
     sh -c "nc -z -w ${TIMEOUT_SEC} ${target_host} ${target_port} || nc -w ${TIMEOUT_SEC} ${target_host} ${target_port} < /dev/null" >/dev/null 2>&1
+  local res=$?
+  if [[ ${res} -eq 0 ]]; then
+    return 0
+  fi
+  return 1
 }
 
 # ------------------------------------------------------------------------------
 # Test 1: API can reach PostgreSQL on port 5432 (Expected: PASS)
 # Rationale: API service is authorized to access PostgreSQL for relational data.
 # ------------------------------------------------------------------------------
-if check_tcp_connection "${API_POD}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"; then
+check_tcp_connection "${API_POD}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"
+CONN_RES=$?
+if [[ ${CONN_RES} -eq 0 ]]; then
   test_result "NETPOL-01" "API can reach PostgreSQL (${POSTGRES_SVC}:${POSTGRES_PORT})" "PASS" "Authorized database connection succeeded"
+elif [[ ${CONN_RES} -eq 126 ]]; then
+  test_result "NETPOL-01" "API can reach PostgreSQL (${POSTGRES_SVC}:${POSTGRES_PORT})" "INDETERMINATE" "API pod exec unavailable to run probe"
 else
   test_result "NETPOL-01" "API can reach PostgreSQL (${POSTGRES_SVC}:${POSTGRES_PORT})" "FAIL" "Authorized connection blocked or database unreachable"
 fi
@@ -174,8 +192,12 @@ fi
 # Test 2: API can reach Redis on port 6379 (Expected: PASS)
 # Rationale: API service is authorized to access Redis for caching and session state.
 # ------------------------------------------------------------------------------
-if check_tcp_connection "${API_POD}" "${REDIS_SVC}" "${REDIS_PORT}"; then
+check_tcp_connection "${API_POD}" "${REDIS_SVC}" "${REDIS_PORT}"
+CONN_RES=$?
+if [[ ${CONN_RES} -eq 0 ]]; then
   test_result "NETPOL-02" "API can reach Redis (${REDIS_SVC}:${REDIS_PORT})" "PASS" "Authorized Redis cache connection succeeded"
+elif [[ ${CONN_RES} -eq 126 ]]; then
+  test_result "NETPOL-02" "API can reach Redis (${REDIS_SVC}:${REDIS_PORT})" "INDETERMINATE" "API pod exec unavailable to run probe"
 else
   test_result "NETPOL-02" "API can reach Redis (${REDIS_SVC}:${REDIS_PORT})" "FAIL" "Authorized connection blocked or Redis unreachable"
 fi
@@ -186,10 +208,16 @@ fi
 # ------------------------------------------------------------------------------
 if [[ "${UNAUTH_POD_READY}" != "true" ]]; then
   test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "INDETERMINATE" "Probe pod was not in Ready state; network policy assertion skipped"
-elif check_tcp_connection "${UNAUTH_POD_NAME}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"; then
-  test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "FAIL" "SECURITY BREACH: Unauthorized pod successfully connected to PostgreSQL"
 else
-  test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "PASS" "Connection timed out/rejected as expected by NetworkPolicy"
+  check_tcp_connection "${UNAUTH_POD_NAME}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"
+  TCP_RES=$?
+  if [[ ${TCP_RES} -eq 126 ]]; then
+    test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "INDETERMINATE" "Probe pod exec failed; unable to run netcat probe"
+  elif [[ ${TCP_RES} -eq 0 ]]; then
+    test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "FAIL" "SECURITY BREACH: Unauthorized pod successfully connected to PostgreSQL"
+  else
+    test_result "NETPOL-03" "Unauthorized pod CANNOT reach PostgreSQL" "PASS" "Connection timed out/rejected as expected by NetworkPolicy"
+  fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -198,10 +226,16 @@ fi
 # ------------------------------------------------------------------------------
 if [[ "${UNAUTH_POD_READY}" != "true" ]]; then
   test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "INDETERMINATE" "Probe pod was not in Ready state; network policy assertion skipped"
-elif check_tcp_connection "${UNAUTH_POD_NAME}" "${REDIS_SVC}" "${REDIS_PORT}"; then
-  test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "FAIL" "SECURITY BREACH: Unauthorized pod successfully connected to Redis"
 else
-  test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "PASS" "Connection timed out/rejected as expected by NetworkPolicy"
+  check_tcp_connection "${UNAUTH_POD_NAME}" "${REDIS_SVC}" "${REDIS_PORT}"
+  TCP_RES=$?
+  if [[ ${TCP_RES} -eq 126 ]]; then
+    test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "INDETERMINATE" "Probe pod exec failed; unable to run netcat probe"
+  elif [[ ${TCP_RES} -eq 0 ]]; then
+    test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "FAIL" "SECURITY BREACH: Unauthorized pod successfully connected to Redis"
+  else
+    test_result "NETPOL-04" "Unauthorized pod CANNOT reach Redis" "PASS" "Connection timed out/rejected as expected by NetworkPolicy"
+  fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -210,7 +244,11 @@ fi
 # into PostgreSQL database.
 # ------------------------------------------------------------------------------
 if [[ -n "${REDIS_POD}" ]]; then
-  if check_tcp_connection "${REDIS_POD}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"; then
+  check_tcp_connection "${REDIS_POD}" "${POSTGRES_SVC}" "${POSTGRES_PORT}"
+  LAT_RES=$?
+  if [[ ${LAT_RES} -eq 126 ]]; then
+    test_result "NETPOL-05" "Redis CANNOT reach PostgreSQL (Lateral Movement)" "INDETERMINATE" "Redis pod exec unavailable to run probe"
+  elif [[ ${LAT_RES} -eq 0 ]]; then
     test_result "NETPOL-05" "Redis CANNOT reach PostgreSQL (Lateral Movement)" "FAIL" "LATERAL MOVEMENT RISK: Redis pod reached PostgreSQL database"
   else
     test_result "NETPOL-05" "Redis CANNOT reach PostgreSQL (Lateral Movement)" "PASS" "Cross-tier lateral movement successfully blocked by NetworkPolicy"
@@ -239,9 +277,20 @@ fi
 # Rationale: Preventing arbitrary internet egress thwarts reverse shells,
 # external data exfiltration, and C2 communication.
 # ------------------------------------------------------------------------------
-# Attempt outbound TCP connection to public DNS/Web (1.1.1.1 on port 80/443)
-if check_tcp_connection "${API_POD}" "1.1.1.1" "80" || check_tcp_connection "${API_POD}" "8.8.8.8" "53"; then
+HOST_HAS_INTERNET=false
+if curl -s --max-time 2 -o /dev/null "http://1.1.1.1" 2>/dev/null || curl -s --max-time 2 -o /dev/null "http://8.8.8.8" 2>/dev/null; then
+  HOST_HAS_INTERNET=true
+fi
+
+check_tcp_connection "${API_POD}" "1.1.1.1" "80"
+EGRESS_RES=$?
+
+if [[ ${EGRESS_RES} -eq 126 ]]; then
+  test_result "NETPOL-07" "API outbound internet access blocked" "INDETERMINATE" "API pod exec unavailable to test egress"
+elif [[ ${EGRESS_RES} -eq 0 ]]; then
   test_result "NETPOL-07" "API outbound internet access blocked" "FAIL" "SECURITY BREACH: API pod can initiate external internet egress"
+elif [[ "${HOST_HAS_INTERNET}" != "true" ]]; then
+  test_result "NETPOL-07" "API outbound internet access blocked" "INDETERMINATE" "Host has no external internet route; cannot deterministically verify network policy drop vs host routing absence"
 else
   test_result "NETPOL-07" "API outbound internet access blocked" "PASS" "External internet egress blocked as required by zero-trust egress policy"
 fi

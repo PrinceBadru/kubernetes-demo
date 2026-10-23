@@ -46,10 +46,16 @@ export const options = {
   },
 };
 
-const BASE_URL =
-  __ENV.BASE_URL && __ENV.BASE_URL.trim() !== '' ? __ENV.BASE_URL.trim() : 'http://localhost:3000';
+const rawBaseUrl = __ENV.BASE_URL ? __ENV.BASE_URL.trim() : '';
+if (!rawBaseUrl) {
+  throw new Error(
+    '[k6] Configuration error: BASE_URL environment variable is required and cannot be empty (F-25, F-62).',
+  );
+}
+const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export function setup() {
+  console.log(`[k6] Executing load test against target: ${BASE_URL}`);
   // Fail fast if target endpoint is unreachable (F-62)
   const probe = http.get(`${BASE_URL}/healthz`, { timeout: '5s' });
   if (probe.status !== 200) {
@@ -67,6 +73,14 @@ export default function () {
   const rootOk = check(rootRes, {
     'root status is 200': (r) => r.status === 200,
     'root response time < 250ms': (r) => r.timings.duration < 250,
+    'root semantic body valid': (r) => {
+      try {
+        const body = JSON.parse(r.body);
+        return body && body.service === 'devsecops-demo-api';
+      } catch (_) {
+        return false;
+      }
+    },
   });
   errorRate.add(!rootOk);
 
