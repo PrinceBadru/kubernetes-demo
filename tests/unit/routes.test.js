@@ -181,6 +181,26 @@ describe('HTTP Routing & Security Baseline', () => {
         delete process.env.API_AUTH_TOKEN;
       }
     });
+
+    it('should reject external ingress traffic to /metrics with HTTP 403 unless authenticated (F-11)', async () => {
+      const unauthRes = await fetch(`${baseUrl}/metrics`, {
+        headers: { 'x-forwarded-for': '203.0.113.195' },
+      });
+      assert.equal(unauthRes.status, 403);
+
+      process.env.API_AUTH_TOKEN = 'metrics-ingress-token';
+      try {
+        const authRes = await fetch(`${baseUrl}/metrics`, {
+          headers: {
+            'x-forwarded-for': '203.0.113.195',
+            'x-api-key': 'metrics-ingress-token',
+          },
+        });
+        assert.equal(authRes.status, 200);
+      } finally {
+        delete process.env.API_AUTH_TOKEN;
+      }
+    });
   });
 
   describe('Audit Records Route & Input Validation (/api/records)', () => {

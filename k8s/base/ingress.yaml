@@ -35,16 +35,6 @@ metadata:
     # -------------------------------------------------------------------------
     nginx.ingress.kubernetes.io/ssl-redirect: 'false'
     nginx.ingress.kubernetes.io/force-ssl-redirect: 'false'
-
-    # -------------------------------------------------------------------------
-    # DevSecOps Principle: Scrape Endpoint Isolation (F-11)
-    # Blocks external Ingress access to internal Prometheus metrics scraper.
-    # -------------------------------------------------------------------------
-    nginx.ingress.kubernetes.io/server-snippet: |
-      location = /metrics {
-        deny all;
-        return 403;
-      }
 spec:
   ingressClassName: nginx
   # ---------------------------------------------------------------------------

@@ -241,9 +241,27 @@ app.get('/readyz', (req, res) => {
 
 /**
  * Prometheus metrics scrape endpoint.
- * Scraped periodically by Prometheus Operator / collector agents.
+ * Scraped periodically by Prometheus Operator / collector agents within the cluster.
+ * External ingress traffic must supply valid API authorization to prevent telemetry harvesting (F-11).
  */
-app.get('/metrics', metricsEndpoint);
+app.get('/metrics', (req, res, next) => {
+  const isExternalIngress = req.headers['x-forwarded-for'] || req.headers['x-forwarded-host'];
+  if (isExternalIngress) {
+    const authHeader = req.headers.authorization;
+    const apiKey = req.headers['x-api-key'];
+    const expectedToken = process.env.API_AUTH_TOKEN || process.env.API_KEY;
+    const isAuthorized = Boolean(
+      expectedToken && (apiKey === expectedToken || authHeader === `Bearer ${expectedToken}`),
+    );
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Metrics scraping is restricted to internal cluster networks',
+      });
+    }
+  }
+  return metricsEndpoint(req, res, next);
+});
 
 /**
  * System diagnostic status endpoint (NIST SP 800-53 AC-3).
