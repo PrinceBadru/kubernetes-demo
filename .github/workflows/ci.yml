@@ -34,6 +34,8 @@ permissions:
   contents: read
   packages: write
   security-events: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -204,17 +206,19 @@ jobs:
           echo "IMAGE_DIGEST=${DIGEST_SHA}" >> "$GITHUB_ENV"
           echo "Published immutable digest: ${IMAGE_DIGEST}"
 
-          # F-03: Assert remote registry manifest digest matches local inspected digest
+          # F-03: Assert remote registry manifest digest matches local inspected digest (Fail-closed)
           echo "Verifying published registry manifest digest matches local digest..."
-          REGISTRY_MANIFEST_DIGEST=$(docker buildx imagetools inspect "${{ env.IMAGE_URI }}:${{ github.sha }}" 2>/dev/null | grep -i "Digest:" | awk '{print $2}' || true)
-          if [ -n "$REGISTRY_MANIFEST_DIGEST" ]; then
-            echo "Remote registry manifest digest: ${REGISTRY_MANIFEST_DIGEST}"
-            if [ "$REGISTRY_MANIFEST_DIGEST" != "$DIGEST_SHA" ]; then
-              echo "::error::Registry digest mismatch! Local: ${DIGEST_SHA}, Remote: ${REGISTRY_MANIFEST_DIGEST}"
-              exit 1
-            fi
-            echo "Registry equality verified: remote manifest matches local scanned digest."
+          REGISTRY_MANIFEST_DIGEST=$(docker buildx imagetools inspect "${{ env.IMAGE_URI }}:${{ github.sha }}" 2>&1 | grep -i "Digest:" | awk '{print $2}' || true)
+          if [ -z "$REGISTRY_MANIFEST_DIGEST" ]; then
+            echo "::error::Failed to retrieve published registry manifest digest for ${{ env.IMAGE_URI }}:${{ github.sha }}"
+            exit 1
           fi
+          echo "Remote registry manifest digest: ${REGISTRY_MANIFEST_DIGEST}"
+          if [ "$REGISTRY_MANIFEST_DIGEST" != "$DIGEST_SHA" ]; then
+            echo "::error::Registry digest mismatch! Local: ${DIGEST_SHA}, Remote: ${REGISTRY_MANIFEST_DIGEST}"
+            exit 1
+          fi
+          echo "Registry equality verified: remote manifest matches local scanned digest."
 
           mkdir -p artifacts
           echo "${IMAGE_DIGEST}" > artifacts/image-digest.txt
@@ -222,7 +226,7 @@ jobs:
       - name: Generate Software Bill of Materials (SBOM)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.IMAGE_URI }}:${{ github.sha }}
+          image-ref: ${{ env.IMAGE_URI }}@${{ steps.push.outputs.image_digest }}
           scan-type: 'image'
           format: 'spdx-json'
           output: 'sbom.spdx.json'
@@ -245,6 +249,8 @@ jobs:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment:
+      name: production
 
     steps:
       - name: Checkout repository
@@ -287,13 +293,46 @@ jobs:
 
           echo "skip_deploy=false" >> "$GITHUB_OUTPUT"
 
-      - name: Apply namespace
+      - name: Download release artifacts
         if: steps.preflight.outputs.skip_deploy != 'true'
-        run: kubectl apply -f k8s/namespace.yaml
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: release-artifacts-${{ github.sha }}
+          path: artifacts
+
+      - name: Verify release metadata and digest binding (F-29)
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          EXPECTED_DIGEST: ${{ needs.build-and-publish.outputs.image_digest }}
+        run: |
+          RECORDED_DIGEST=$(cat artifacts/image-digest.txt)
+          if [ "${RECORDED_DIGEST}" != "${EXPECTED_DIGEST}" ]; then
+            echo "::error::Release artifact digest mismatch! Expected ${EXPECTED_DIGEST}, found ${RECORDED_DIGEST}"
+            exit 1
+          fi
+          test -f artifacts/sbom.spdx.json || (echo "::error::Missing SBOM artifact" && exit 1)
+          echo "Release metadata and SBOM provenance verified against digest ${EXPECTED_DIGEST}."
+
+      - name: Validate and apply namespace
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
+        run: |
+          if [[ ! "${TARGET_NAMESPACE}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || [ ${#TARGET_NAMESPACE} -gt 63 ]; then
+            echo "::error::Invalid target namespace name '${TARGET_NAMESPACE}'. Must match RFC 1123 label format."
+            exit 1
+          fi
+          sed "s/name: devsecops-demo/name: ${TARGET_NAMESPACE}/g" k8s/namespace.yaml | kubectl apply -f -
 
       - name: Apply security policies
         if: steps.preflight.outputs.skip_deploy != 'true'
-        run: kubectl apply -f k8s/security/
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
+        run: |
+          cd k8s/security
+          kustomize edit set namespace "${TARGET_NAMESPACE}"
+          cd ../..
+          kubectl apply -k k8s/security/
 
       - name: Configure deployment image via Kustomize
         if: steps.preflight.outputs.skip_deploy != 'true'
@@ -317,6 +356,23 @@ jobs:
         env:
           TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
         run: kubectl rollout status deployment/api -n "${TARGET_NAMESPACE}" --timeout=120s
+
+      - name: Verify deployed Pod imageID matches approved registry digest (F-01)
+        if: steps.preflight.outputs.skip_deploy != 'true'
+        env:
+          TARGET_NAMESPACE: ${{ inputs.target_namespace || 'devsecops-demo' }}
+          EXPECTED_DIGEST: ${{ needs.build-and-publish.outputs.image_digest }}
+        run: |
+          echo "Verifying running pod imageID against approved digest ${EXPECTED_DIGEST}..."
+          POD_IMAGE_IDS=$(kubectl get pods -n "${TARGET_NAMESPACE}" -l app.kubernetes.io/name=api -o jsonpath='{.items[*].status.containerStatuses[?(@.name=="api")].imageID}')
+          echo "Observed Pod ImageIDs: ${POD_IMAGE_IDS}"
+          for image_id in ${POD_IMAGE_IDS}; do
+            if [[ "${image_id}" != *"${EXPECTED_DIGEST}"* ]]; then
+              echo "::error::Pod running unapproved imageID: ${image_id}. Expected digest: ${EXPECTED_DIGEST}"
+              exit 1
+            fi
+          done
+          echo "All ready API pods verified running approved digest ${EXPECTED_DIGEST}."
 
       - name: In-cluster smoke test
         if: steps.preflight.outputs.skip_deploy != 'true'
