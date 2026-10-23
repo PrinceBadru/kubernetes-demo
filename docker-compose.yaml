@@ -56,20 +56,10 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=${NODE_ENV:-development}
-      - API_AUTH_TOKEN=${API_AUTH_TOKEN:-devsecops-demo-api-key}
-      - PG_HOST=postgres
-      - PG_PORT=5432
-      - PG_DATABASE=auditor
-      - PG_USER=app
-      - PG_PASSWORD=${POSTGRES_PASSWORD:-change_this_in_production}
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=auditor
-      - POSTGRES_USER=app
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change_this_in_production}
-      - DATABASE_URL=postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change_this_in_production}@postgres:5432/${POSTGRES_DB:-auditor}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - API_AUTH_TOKEN=${API_AUTH_TOKEN:-}
+      - ALLOW_ANONYMOUS_ACCESS=${ALLOW_ANONYMOUS_ACCESS:-false}
+      - DATABASE_URL=postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-auditor}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
 
     # Health Check: Validates liveness using Alpine native wget on lightweight /healthz
     healthcheck:
@@ -111,7 +101,7 @@ services:
 
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_in_production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       POSTGRES_DB: ${POSTGRES_DB:-auditor}
 
     # Volume Persistence: Preserves database states across container lifecycle events

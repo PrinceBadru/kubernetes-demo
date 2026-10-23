@@ -120,6 +120,24 @@ app.get('/api/health', async (req, res) => {
   try {
     const health = await deepHealthCheck();
     const statusCode = health.status === 'ok' ? 200 : 503;
+
+    // DevSecOps Principle (Least Privilege & Information Disclosure Mitigation: F-11)
+    // Public/unauthenticated callers only receive high-level status.
+    // Detailed downstream service breakdown is restricted to authenticated requests.
+    const authHeader = req.headers.authorization;
+    const apiKey = req.headers['x-api-key'];
+    const expectedToken = process.env.API_AUTH_TOKEN || process.env.API_KEY;
+    const isAuthorized = Boolean(
+      expectedToken && (apiKey === expectedToken || authHeader === `Bearer ${expectedToken}`),
+    );
+
+    if (!isAuthorized) {
+      return res.status(statusCode).json({
+        status: health.status,
+        timestamp: health.timestamp,
+      });
+    }
+
     return res.status(statusCode).json({
       status: health.status,
       timestamp: health.timestamp,

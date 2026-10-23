@@ -26,3 +26,16 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Synchronize sequence with highest existing ID
 SELECT setval(pg_get_serial_sequence('audit_logs', 'id'), COALESCE((SELECT MAX(id) FROM audit_logs), 1));
+
+-- ==============================================================================
+-- Schema Migrations & Version Tracking (F-37 / F-66)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INT PRIMARY KEY,
+    description VARCHAR(255) NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO schema_migrations (version, description)
+VALUES (1, 'Initial audit_logs schema with deterministic seed records')
+ON CONFLICT (version) DO NOTHING;

@@ -13,16 +13,18 @@ describe('Deep Health Check Subsystem', () => {
     }
   });
   it('should return a structured health report containing timestamp, uptime, and services', async () => {
-    const result = await deepHealthCheck();
+    const mockPg = async () => ({ ok: true, latencyMs: 5 });
+    const mockRedis = async () => ({ ok: true, latencyMs: 2 });
+    const result = await deepHealthCheck({ checkPg: mockPg, checkCache: mockRedis });
 
     assert.ok(result);
-    assert.ok(result.status === 'ok' || result.status === 'degraded');
+    assert.equal(result.status, 'ok');
     assert.equal(typeof result.timestamp, 'string');
     assert.equal(typeof result.uptime, 'number');
     assert.ok(result.services.postgres);
     assert.ok(result.services.redis);
-    assert.equal(typeof result.services.postgres.status, 'string');
-    assert.equal(typeof result.services.redis.status, 'string');
+    assert.equal(result.services.postgres.status, 'ok');
+    assert.equal(result.services.redis.status, 'ok');
   });
 
   it('should deterministically report healthy (status: ok) when all dependencies pass', async () => {
@@ -78,19 +80,28 @@ describe('Deep Health Check Subsystem', () => {
     assert.equal(redisGauge.value, 0);
   });
 
-  it('should accurately reflect downstream dependency health in Prometheus gauges', async () => {
-    const result = await deepHealthCheck();
+  it('should deterministically report degraded and set both Prometheus gauges to 0 when all dependencies fail', async () => {
+    const mockPg = async () => ({ ok: false, latencyMs: 15, error: 'connection refused' });
+    const mockRedis = async () => ({ ok: false, latencyMs: 2000, error: 'timeout' });
+
+    const result = await deepHealthCheck({ checkPg: mockPg, checkCache: mockRedis });
+
+    assert.equal(result.status, 'degraded');
+    assert.equal(result.services.postgres.status, 'down');
+    assert.equal(result.services.redis.status, 'down');
 
     const metric = await healthCheckStatus.get();
-    assert.ok(metric.values.length >= 2);
+    const pgGauge = metric.values.find((v) => v.labels.service === 'postgres');
+    const redisGauge = metric.values.find((v) => v.labels.service === 'redis');
+    assert.equal(pgGauge.value, 0);
+    assert.equal(redisGauge.value, 0);
+  });
 
-    const pgValue = metric.values.find((v) => v.labels.service === 'postgres');
-    const redisValue = metric.values.find((v) => v.labels.service === 'redis');
+  it('should handle probe timeouts cleanly without unhandled rejection', async () => {
+    const mockTimeoutPg = async () => ({ ok: false, latencyMs: 2500, error: 'timeout' });
+    const mockTimeoutRedis = async () => ({ ok: false, latencyMs: 2000, error: 'timeout' });
 
-    assert.ok(pgValue);
-    assert.ok(redisValue);
-
-    assert.equal(pgValue.value, result.services.postgres.status === 'ok' ? 1 : 0);
-    assert.equal(redisValue.value, result.services.redis.status === 'ok' ? 1 : 0);
+    const result = await deepHealthCheck({ checkPg: mockTimeoutPg, checkCache: mockTimeoutRedis });
+    assert.equal(result.status, 'degraded');
   });
 });

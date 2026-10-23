@@ -123,6 +123,12 @@ export const checkRedis = async () => {
   } catch (error) {
     const latencyMs = Math.round(performance.now() - start);
     console.error('[Redis] Health check failed:', error.message);
+    if (error.message.includes('timed out')) {
+      try {
+        // Disconnect immediately to drop hung socket and purge queued commands (F-09)
+        redis.disconnect(true);
+      } catch (_) {}
+    }
     return { ok: false, latencyMs, error: error.message };
   } finally {
     clearTimeout(timerId);

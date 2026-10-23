@@ -130,30 +130,37 @@ pool.on('error', (err) => {
 });
 
 /**
- * Executes a PostgreSQL health probe query (`SELECT 1`) with a strict 3-second timeout.
+ * Executes a PostgreSQL health probe query (`SELECT 1`) with native statement timeout
+ * and fail-closed resource cancellation.
  *
- * DevSecOps Rationale:
+ * DevSecOps Rationale (F-09):
  * Guarantees that database latency spikes, locks, or network partitions do not block
  * API threads or cause Kubernetes readiness checks to cascade into full outages.
+ * If the probe exceeds deadline, the acquired client is forcibly discarded (release(true))
+ * to cancel backend server execution and prevent pool socket exhaustion.
  *
  * @returns {Promise<{ ok: boolean, latencyMs: number, error?: string }>}
  */
 export const checkPostgres = async () => {
   const start = performance.now();
-  let timerId;
+  let client = null;
+  let timerId = null;
 
   const timeoutPromise = new Promise((_, reject) => {
     timerId = setTimeout(() => {
-      reject(new Error('PostgreSQL health check probe timed out after 3000ms'));
-    }, 3000);
+      reject(new Error('PostgreSQL health check probe timed out after 2500ms'));
+    }, 2500);
   });
 
   try {
+    // Acquire dedicated client from pool with timeout
+    client = await Promise.race([pool.connect(), timeoutPromise]);
+
     await Promise.race([
-      pool.query({
-        text: 'SELECT 1',
-        statement_timeout: 2500,
-        query_timeout: 2500,
+      client.query({
+        text: 'SELECT 1;',
+        statement_timeout: 2000,
+        query_timeout: 2000,
       }),
       timeoutPromise,
     ]);
@@ -168,9 +175,22 @@ export const checkPostgres = async () => {
     console.error('[DB] PostgreSQL health check failed:', error.message);
     updatePoolMetrics();
 
+    // If query timed out or failed, destroy client connection to cancel backend statement
+    if (client) {
+      try {
+        client.release(true);
+        client = null;
+      } catch (_) {}
+    }
+
     return { ok: false, latencyMs, error: error.message };
   } finally {
-    clearTimeout(timerId);
+    if (timerId) clearTimeout(timerId);
+    if (client) {
+      try {
+        client.release();
+      } catch (_) {}
+    }
   }
 };
 
@@ -240,8 +260,27 @@ const __dirname = path.dirname(__filename);
 const initSqlPath = path.join(__dirname, 'db', 'init.sql');
 
 /**
+ * Retrieves current database migration version.
+ * DevSecOps Principle (F-37 / F-66):
+ * Enables versioned schema evolution and verifies migration convergence.
+ *
+ * @returns {Promise<number>}
+ */
+export const getSchemaVersion = async () => {
+  try {
+    const res = await pool.query(
+      'SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations',
+    );
+    return parseInt(res.rows[0]?.version, 10) || 0;
+  } catch (_) {
+    return 0;
+  }
+};
+
+/**
  * Automatically creates the audit_logs table and seeds deterministic demo data.
  * Reads canonical SQL schema from src/db/init.sql (Single Source of Truth).
+ * Validates schema migration convergence and records version.
  */
 export const initSchema = async () => {
   try {
@@ -250,7 +289,10 @@ export const initSchema = async () => {
     }
     const sqlContent = fs.readFileSync(initSqlPath, 'utf8');
     await pool.query(sqlContent);
-    console.info('[DB] Schema and seed data initialized successfully from canonical init.sql');
+    const version = await getSchemaVersion();
+    console.info(
+      `[DB] Schema and seed data initialized successfully from canonical init.sql (version: ${version})`,
+    );
     return true;
   } catch (err) {
     console.warn('[DB] Schema initialization deferred or unavailable:', err.message);
@@ -263,4 +305,5 @@ export default {
   checkPostgres,
   queryRecords,
   initSchema,
+  getSchemaVersion,
 };

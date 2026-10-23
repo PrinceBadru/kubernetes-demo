@@ -275,20 +275,59 @@ describe('HTTP Routing & Security Baseline', () => {
       assert.equal(res.status, 404);
     });
 
-    it('should collapse unmatched 404 paths to __unmatched__ in metrics to prevent metric explosion', async () => {
-      // Send multiple distinct 404 paths
-      for (let i = 0; i < 15; i++) {
-        const res = await fetch(`${baseUrl}/random-non-existent-path-${i}`);
+    it('GET /api/health should sanitize response for unauthenticated callers and detail services for authenticated callers (F-11)', async () => {
+      process.env.API_AUTH_TOKEN = 'health-test-token';
+      try {
+        // Unauthenticated request
+        const unauthRes = await fetch(`${baseUrl}/api/health`);
+        assert.ok(unauthRes.status === 200 || unauthRes.status === 503);
+        const unauthBody = await unauthRes.json();
+        assert.ok(unauthBody.status);
+        assert.ok(unauthBody.timestamp);
+        assert.equal(
+          unauthBody.services,
+          undefined,
+          'Unauthenticated response must not disclose internal services',
+        );
+
+        // Authenticated request
+        const authRes = await fetch(`${baseUrl}/api/health`, {
+          headers: { 'x-api-key': 'health-test-token' },
+        });
+        assert.ok(authRes.status === 200 || authRes.status === 503);
+        const authBody = await authRes.json();
+        assert.ok(authBody.status);
+        assert.ok(authBody.services);
+        assert.ok(authBody.services.postgres);
+        assert.ok(authBody.services.redis);
+      } finally {
+        delete process.env.API_AUTH_TOKEN;
+      }
+    });
+
+    it('should collapse unmatched 404 paths to __unmatched__ under high volume and maintain bounded scrape size (F-65)', async () => {
+      // Send 100 distinct 404 paths concurrently
+      const requests = Array.from({ length: 100 }, (_, i) =>
+        fetch(`${baseUrl}/high-volume-404-canary-path-${i}`),
+      );
+      const responses = await Promise.all(requests);
+      for (const res of responses) {
         assert.equal(res.status, 404);
       }
 
-      // Fetch /metrics and verify cardinality is bounded
+      // Fetch /metrics and verify cardinality is strictly bounded
       const metricsRes = await fetch(`${baseUrl}/metrics`);
       assert.equal(metricsRes.status, 200);
       const metricsText = await metricsRes.text();
 
       assert.match(metricsText, /route="__unmatched__"/);
-      assert.doesNotMatch(metricsText, /route="\/random-non-existent-path-0"/);
+      assert.doesNotMatch(metricsText, /high-volume-404-canary-path/);
+
+      // Scrape text size must remain bounded (less than 35KB)
+      assert.ok(
+        Buffer.byteLength(metricsText, 'utf8') < 35000,
+        `Metrics scrape size exceeds bound: ${Buffer.byteLength(metricsText, 'utf8')} bytes`,
+      );
     });
   });
 });
