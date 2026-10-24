@@ -240,6 +240,16 @@ jobs:
             artifacts/image-digest.txt
           retention-days: 30
 
+      # F-29: Bind SBOM to the image digest as a Sigstore attestation so
+      # downstream consumers can verify provenance chain from source → image.
+      # Requires id-token: write and attestations: write (declared at workflow level).
+      - name: Attest SBOM provenance to image digest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE_URI }}
+          subject-digest: ${{ steps.push.outputs.image_digest }}
+          push-to-registry: true
+
   # ============================================================================
   # Gate 4: Continuous Deployment with In-Cluster Verification
   # ============================================================================
