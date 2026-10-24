@@ -63,7 +63,7 @@
       },
       "evidence": {
         "log_pattern": "Connection timed out/rejected as expected by NetworkPolicy",
-        "command": "kubectl exec -n devsecops-demo netpol-unauthorized-probe -- nc -z -w 3 postgres 5432"
+        "command": "kubectl exec -n devsecops-demo $(kubectl get pod -n devsecops-demo -l run=netpol-unauthorized-probe --no-headers -o custom-columns=':metadata.name' | head -1) -- nc -z -w 3 postgres 5432"
       },
       "source_paths": {
         "manifests": ["k8s/security/network-policies.yaml"],
@@ -71,7 +71,7 @@
       },
       "reversibility": {
         "cleanup_action": "delete_pod",
-        "target": "netpol-unauthorized-probe"
+        "target": "netpol-unauthorized-probe-<random> (pod created with a random suffix at runtime; use: kubectl delete pod -n devsecops-demo -l run=netpol-unauthorized-probe)"
       }
     },
     {
