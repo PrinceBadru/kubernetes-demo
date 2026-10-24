@@ -65,6 +65,19 @@ mkdir -p "${ARTIFACTS_DIR}"
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# F-62: Fail-close guard — warn loudly when BASE_URL is still the localhost
+# default so CI pipelines surfacing a forgotten env-var don't silently test
+# nothing. If CI=true and BASE_URL was not explicitly provided, abort.
+if [[ "${BASE_URL}" == "http://localhost:3000" ]]; then
+  if [[ "${CI:-false}" == "true" ]]; then
+    echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} BASE_URL is the localhost default (http://localhost:3000) inside a CI environment."
+    echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} Set BASE_URL to the deployed service URL before running performance tests."
+    exit 1
+  else
+    log_warn "BASE_URL is the localhost default (http://localhost:3000). Set BASE_URL explicitly if the API is deployed elsewhere."
+  fi
+fi
+
 echo -e "${COLOR_CYAN}${BOLD}"
 echo "======================================================================"
 echo " ⚡ DevSecOps Demo: Step 5 - Automated Performance & Load Testing"
