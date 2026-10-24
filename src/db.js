@@ -139,6 +139,14 @@ pool.on('error', (err) => {
  * If the probe exceeds deadline, the acquired client is forcibly discarded (release(true))
  * to cancel backend server execution and prevent pool socket exhaustion.
  *
+ * Cancellation Model (F-09):
+ *   `Promise.race([client.query(...), timeoutPromise])` wins on the first settled branch.
+ *   The query carries `statement_timeout: 2000` — a server-side PostgreSQL directive that
+ *   instructs the backend to cancel execution after 2 s, ensuring the losing race branch
+ *   does not leak a result into a future probe cycle.  On timeout the pool client is
+ *   released with `release(true)` (destroyClient=true) so the underlying socket is closed
+ *   and not returned to the pool in an indeterminate state.
+ *
  * @returns {Promise<{ ok: boolean, latencyMs: number, error?: string }>}
  */
 export const checkPostgres = async () => {

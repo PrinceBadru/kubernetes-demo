@@ -13,6 +13,15 @@
  *    terminating the application process when the cache is transiently unavailable.
  * 4. Observability:
  *    Instruments command counts with Prometheus metrics to measure cache throughput.
+ *
+ * Cancellation Model (F-09):
+ *    `Promise.race([redis.ping(), timeoutPromise])` wins on the first settled promise.
+ *    JavaScript's event loop cannot natively cancel the losing `redis.ping()` branch;
+ *    however, on timeout we call `redis.disconnect(true)` which immediately drops the
+ *    underlying TCP socket and purges all pending commands from the ioredis internal queue.
+ *    This prevents the hung command from leaking a response into a future health probe cycle.
+ *    The ioredis `commandTimeout: 2000` option provides a second layer of server-side
+ *    command-level cancellation so that the connection-level disconnect is a last resort.
  */
 
 import Redis from 'ioredis';
